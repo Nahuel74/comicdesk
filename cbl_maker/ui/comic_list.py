@@ -10,7 +10,9 @@ from PySide6.QtGui import QStandardItemModel, QStandardItem, QDesktopServices, Q
 
 from cbl_maker.models import Comic
 from cbl_maker.services.cbz_reader import read_cbz_metadata
-from cbl_maker.services.comicvine_api import ComicVineClient
+from cbl_maker.services.comicvine_api import (
+    ComicVineClient, ComicVineError, RateLimitError, InvalidAPIKeyError
+)
 from cbl_maker.utils.url_parser import extract_comicvine_ids
 
 
@@ -46,7 +48,8 @@ class ScanWorker(QThread):
 class EnrichWorker(QThread):
     """Worker thread for enriching comics from Comic Vine."""
     progress = Signal(int, int)
-    finished = Signal(list)
+    finished = Signal(list, bool)
+    error = Signal(str)
 
     def __init__(self, comics: list[Comic], api_key: str):
         super().__init__()
@@ -55,23 +58,89 @@ class EnrichWorker(QThread):
         self._cancelled = False
 
     def run(self):
+        client = ComicVineClient(self.api_key)
         total = len(self.comics)
-        
+        error_occurred = False
+
         for i, comic in enumerate(self.comics):
             if self._cancelled:
                 break
-            
-            if comic.web_links and not comic.has_cv_ids:
-                for url in comic.web_links:
-                    ids = extract_comicvine_ids(url)
-                    if ids.get("issue_id") and not comic.cv_issue_id:
-                        comic.cv_issue_id = ids["issue_id"]
-                    if ids.get("series_id") and not comic.cv_series_id:
-                        comic.cv_series_id = ids["series_id"]
-            
+
+            try:
+                self._enrich_comic(comic, client)
+            except InvalidAPIKeyError:
+                self.error.emit("Invalid API key")
+                error_occurred = True
+                break
+            except RateLimitError:
+                self.error.emit("Rate limit exceeded — try again later")
+                error_occurred = True
+                break
+            except ComicVineError as e:
+                self.error.emit(f"API error: {e}")
+                error_occurred = True
+
             self.progress.emit(i + 1, total)
-        
-        self.finished.emit(self.comics)
+
+        self.finished.emit(self.comics, error_occurred)
+
+    def _enrich_comic(self, comic: Comic, client) -> None:
+        """Enrich a single comic using the Comic Vine API."""
+        # Case 1: Already has both IDs — skip
+        if comic.has_cv_ids:
+            return
+
+        # Case 2: Has issue_id — fetch issue to get series_id
+        if comic.cv_issue_id:
+            issue = client.get_issue(comic.cv_issue_id)
+            if issue.series_id and not comic.cv_series_id:
+                comic.cv_series_id = issue.series_id
+            self._apply_issue_data(comic, issue)
+            return
+
+        # Case 3: Has web_links — parse for issue_id then fetch
+        if comic.web_links:
+            for url in comic.web_links:
+                ids = extract_comicvine_ids(url)
+                if ids.get("issue_id"):
+                    comic.cv_issue_id = ids["issue_id"]
+                    self._fetch_and_apply_issue(comic, client, ids["issue_id"])
+                    return
+                if ids.get("series_id") and not comic.cv_series_id:
+                    comic.cv_series_id = ids["series_id"]
+
+        # Case 4: Has series_id but no issue_id — already parsed from URL
+        if comic.cv_series_id:
+            return
+
+        # Case 5: No IDs at all — search by title + issue number
+        if comic.series_name and comic.issue_number:
+            query = f"{comic.series_name} #{comic.issue_number}"
+            results = client.search_issue(query)
+            if results:
+                best = results[0]
+                comic.cv_issue_id = best.id
+                if best.series_id:
+                    comic.cv_series_id = best.series_id
+                self._apply_issue_data(comic, best)
+
+    def _fetch_and_apply_issue(self, comic: Comic, client, issue_id: str) -> None:
+        """Fetch issue from API and apply data to comic."""
+        issue = client.get_issue(issue_id)
+        if issue.series_id and not comic.cv_series_id:
+            comic.cv_series_id = issue.series_id
+        self._apply_issue_data(comic, issue)
+
+    def _apply_issue_data(self, comic: Comic, issue) -> None:
+        """Apply issue data from API response to comic, filling missing fields."""
+        if not comic.series_name and issue.series_name:
+            comic.series_name = issue.series_name
+        if not comic.volume and issue.volume:
+            comic.volume = issue.volume
+        if not comic.issue_number and issue.issue_number:
+            comic.issue_number = issue.issue_number
+        if not comic.year and issue.cover_date:
+            comic.year = issue.cover_date[:4]
 
     def cancel(self):
         self._cancelled = True
@@ -256,23 +325,30 @@ class ComicList(QWidget):
         if not self.config or not self.config.api_key:
             self.status_label.setText("Error: No API key configured")
             return
-        
+
         self.status_label.setText("Enriching from Comic Vine...")
         self.enrich_btn.setEnabled(False)
-        
+
         self.enrich_worker = EnrichWorker(self.comics, self.config.api_key)
         self.enrich_worker.finished.connect(self._on_enrich_complete)
+        self.enrich_worker.error.connect(
+            lambda msg: self.status_label.setText(f"Error: {msg}")
+        )
         self.enrich_worker.progress.connect(
             lambda cur, tot: self.status_label.setText(f"Enriching: {cur}/{tot}")
         )
         self.enrich_worker.start()
 
-    def _on_enrich_complete(self, comics: list[Comic]):
+    def _on_enrich_complete(self, comics: list[Comic], error_occurred: bool):
         """Handle enrich completion."""
+        enriched = sum(1 for c in comics if c.has_cv_ids)
         self.comics = comics
         self._populate_table()
         self.enrich_btn.setEnabled(True)
-        self.status_label.setText(f"Enriched {len(comics)} comics")
+        if not error_occurred:
+            self.status_label.setText(
+                f"Enriched {enriched}/{len(comics)} comics"
+            )
 
     def _show_context_menu(self, position):
         """Show context menu for table."""
