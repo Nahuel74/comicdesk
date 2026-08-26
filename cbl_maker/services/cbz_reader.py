@@ -49,6 +49,9 @@ def read_cbz_metadata(cbz_path: Path) -> Comic:
             comic.volume = _get_text(root, "Volume", "")
             comic.issue_number = _get_text(root, "Number", "")
             comic.year = _get_text(root, "Year", "")
+            comic.title = _get_text(root, "Title", "")
+            comic.month = _get_text(root, "Month", "")
+            comic.day = _get_text(root, "Day", "")
             
             # Extract Comic Vine URLs from Web and Notes fields
             web_field = _get_text(root, "Web", "")
