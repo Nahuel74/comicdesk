@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QMainWindow, QSplitter, QStatusBar, QMenuBar, QMenu
+    QMainWindow, QSplitter, QStatusBar, QMenu, QWidget, QVBoxLayout, QLabel
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
@@ -13,6 +13,12 @@ from cbl_maker.ui.config_dialog import ConfigDialog
 from cbl_maker.ui.folder_panel import FolderPanel
 from cbl_maker.ui.comic_list import ComicList
 from cbl_maker.ui.reading_list_panel import ReadingListPanel
+from cbl_maker.ui.theme import (
+    SPACING,
+    application_font,
+    application_stylesheet,
+    workspace_topbar_stylesheet,
+)
 
 
 class MainWindow(QMainWindow):
@@ -24,46 +30,44 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._setup_menu()
         self._setup_statusbar()
+        self.reading_list_panel.status_message.connect(self.statusbar.showMessage)
+        self.reading_list_panel.dirty_changed.connect(self.setWindowModified)
         self._load_initial_folder()
 
     def _setup_ui(self):
         """Set up the main UI layout."""
         self.setWindowTitle("CBL Maker")
-        self.setMinimumSize(1200, 700)
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #1e1e1e;
-            }
-            QSplitter::handle {
-                background-color: #3d3d3d;
-                width: 2px;
-            }
-            QMenuBar {
-                background-color: #2b2b2b;
-                color: #e0e0e0;
-                border-bottom: 1px solid #3d3d3d;
-            }
-            QMenuBar::item:selected {
-                background-color: #3d3d3d;
-            }
-            QMenu {
-                background-color: #2b2b2b;
-                color: #e0e0e0;
-                border: 1px solid #3d3d3d;
-            }
-            QMenu::item:selected {
-                background-color: #264f78;
-            }
-            QStatusBar {
-                background-color: #2b2b2b;
-                color: #e0e0e0;
-                border-top: 1px solid #3d3d3d;
-            }
-        """)
-        
-        # Main splitter
+        self.setMinimumSize(980, 600)
+        self.setFont(application_font())
+        self.setStyleSheet(application_stylesheet())
+
+        workspace = QWidget()
+        workspace.setObjectName("workspace")
+        workspace_layout = QVBoxLayout(workspace)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(0)
+
+        topbar = QWidget()
+        topbar.setObjectName("workspaceTopbar")
+        topbar.setMinimumHeight(44)
+        topbar.setStyleSheet(workspace_topbar_stylesheet())
+        topbar_layout = QVBoxLayout(topbar)
+        topbar_layout.setContentsMargins(
+            SPACING["lg"], SPACING["sm"], SPACING["lg"], SPACING["sm"]
+        )
+        title = QLabel("CBL Maker")
+        title.setObjectName("workspaceTitle")
+        topbar_layout.addWidget(title)
+        hint = QLabel("Comic workspace")
+        hint.setObjectName("workspaceHint")
+        topbar_layout.addWidget(hint)
+        workspace_layout.addWidget(topbar)
+
+        # Responsive three-panel workspace.
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setStyleSheet("QSplitter { background-color: #1e1e1e; }")
+        splitter.setObjectName("workspaceSplitter")
+        splitter.setHandleWidth(6)
+        splitter.setChildrenCollapsible(False)
         
         # Left panel - folder browser
         self.folder_panel = FolderPanel(default_folder=self.config.default_folder)
@@ -75,17 +79,32 @@ class MainWindow(QMainWindow):
         
         # Right panel - reading list
         self.reading_list_panel = ReadingListPanel()
+
+        self.folder_panel.setMinimumWidth(180)
+        self.comic_list.setMinimumWidth(360)
+        self.reading_list_panel.setMinimumWidth(260)
         
         splitter.addWidget(self.folder_panel)
         splitter.addWidget(self.comic_list)
         splitter.addWidget(self.reading_list_panel)
-        splitter.setSizes([250, 500, 350])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
+        splitter.setStretchFactor(2, 1)
+        splitter.setSizes([230, 480, 320])
         
-        self.setCentralWidget(splitter)
+        workspace_layout.addWidget(splitter, 1)
+        self.splitter = splitter
+        self.setCentralWidget(workspace)
 
     def _setup_menu(self):
         """Set up the menu bar."""
         menubar = self.menuBar()
+
+        view_menu = menubar.addMenu("&View")
+        sidebar_action = QAction("Toggle &Folders Sidebar", self)
+        sidebar_action.setShortcut("Ctrl+Shift+B")
+        sidebar_action.triggered.connect(self.folder_panel.toggle_collapsed)
+        view_menu.addAction(sidebar_action)
         
         # File menu
         file_menu = menubar.addMenu("&File")
@@ -142,3 +161,8 @@ class MainWindow(QMainWindow):
         """Handle comic selection for adding to reading list."""
         for comic in comics:
             self.reading_list_panel.add_comic(comic)
+
+    def closeEvent(self, event):
+        """Stop background work before Qt destroys the workspace children."""
+        self.comic_list.shutdown_workers()
+        super().closeEvent(event)

@@ -75,6 +75,17 @@ class TestGenerateCbl:
         # Should not have Database element
         assert "<Database" not in xml or comic.cv_series_id is None
 
+    def test_does_not_write_incomplete_database_for_empty_cv_id(self):
+        comic = Comic(
+            path=Path("/test.cbz"),
+            series_name="Test",
+            cv_series_id="",
+            cv_issue_id="123",
+        )
+        xml = generate_cbl(ReadingList(name="Test List", comics=[comic]))
+
+        assert "<Database" not in xml
+
 
 class TestSaveCbl:
     """Tests for save_cbl function."""

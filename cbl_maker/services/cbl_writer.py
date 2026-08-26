@@ -36,7 +36,7 @@ def generate_cbl(reading_list: ReadingList) -> str:
         book_elem.set("Issue", comic.issue_number)
         
         # Add Database element if CV IDs are present
-        if comic.cv_series_id or comic.cv_issue_id:
+        if comic.has_cv_ids:
             db_elem = SubElement(book_elem, "Database")
             db_elem.set("Name", "cv")
             db_elem.set("Series", comic.cv_series_id or "")

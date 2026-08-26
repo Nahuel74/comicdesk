@@ -24,7 +24,7 @@ class Comic:
     @property
     def has_cv_ids(self) -> bool:
         """Check if Comic Vine IDs are present."""
-        return self.cv_series_id is not None and self.cv_issue_id is not None
+        return bool(self.cv_series_id and self.cv_issue_id)
 
     @property
     def release_date(self):
@@ -55,6 +55,7 @@ class ReadingList:
     name: str
     comics: list[Comic] = field(default_factory=list)
     ordered_by: str = "release_date"  # "release_date" | "manual"
+    order_direction: str = "asc"
 
     def add_comic(self, comic: Comic) -> bool:
         """Add comic to list. Returns False if already exists."""
@@ -69,27 +70,49 @@ class ReadingList:
         self.comics = [c for c in self.comics if c.path != comic.path]
         return len(self.comics) < initial_len
 
-    def sort_by(self, criterion: str) -> None:
-        """Sort comics by the given criterion."""
+    def sort_by(self, criterion: str, direction: str = "asc") -> None:
+        """Sort by a supported criterion, keeping missing values at the end."""
+        if criterion not in {"manual", "release_date", "series_issue", "volume", "title"}:
+            return
+        direction = direction if direction in {"asc", "desc"} else "asc"
         self.ordered_by = criterion
+        self.order_direction = direction
+        if criterion == "manual":
+            return
 
-        if criterion == "release_date":
-            self.comics.sort(key=lambda c: c.release_date or datetime.min)
-        elif criterion == "series_issue":
-            self.comics.sort(key=lambda c: (c.series_name, c.issue_number))
-        elif criterion == "volume":
-            self.comics.sort(key=lambda c: c.volume)
-        elif criterion == "title":
-            self.comics.sort(key=lambda c: c.title)
-        # "manual" = no sort, keep current order
+        def value(comic):
+            if criterion == "release_date":
+                return comic.release_date
+            if criterion == "series_issue":
+                return (comic.series_name or "", comic.issue_number or "")
+            if criterion == "volume":
+                return comic.volume or ""
+            return comic.title or ""
+
+        def is_missing(comic):
+            item = value(comic)
+            if criterion == "series_issue":
+                return not item[0] and not item[1]
+            return item is None or item == ""
+
+        present = [comic for comic in self.comics if not is_missing(comic)]
+        missing = [comic for comic in self.comics if is_missing(comic)]
+        present.sort(key=value, reverse=direction == "desc")
+        self.comics[:] = present + missing
 
     def move_comic(self, comic: Comic, direction: int) -> None:
         """Move comic up (-1) or down (+1) in list."""
+        if direction not in (-1, 1):
+            return
         try:
             idx = self.comics.index(comic)
             new_idx = max(0, min(len(self.comics) - 1, idx + direction))
+            if new_idx == idx:
+                return
             self.comics.pop(idx)
             self.comics.insert(new_idx, comic)
+            self.ordered_by = "manual"
+            self.order_direction = "asc"
         except ValueError:
             pass
 

@@ -3,7 +3,7 @@
 import json
 import logging
 from pathlib import Path
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass, fields
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,14 @@ class Config:
             try:
                 with open(CONFIG_FILE) as f:
                     data = json.load(f)
-                    return cls(**data)
-            except (json.JSONDecodeError, IOError) as e:
+                    if not isinstance(data, dict):
+                        raise TypeError("configuration root must be a JSON object")
+                    known_fields = {config_field.name for config_field in fields(cls)}
+                    return cls(**{
+                        key: value
+                        for key, value in data.items()
+                        if key in known_fields
+                    })
+            except (json.JSONDecodeError, IOError, TypeError) as e:
                 logger.warning(f"Failed to load config: {e}")
         return cls()
