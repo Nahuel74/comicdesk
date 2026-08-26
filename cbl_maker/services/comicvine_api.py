@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 API_BASE = "https://comicvine.gamespot.com/api"
 CACHE_DIR = CONFIG_DIR / "cache"
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 
 
 class ComicVineError(Exception):
@@ -33,15 +34,7 @@ class InvalidAPIKeyError(ComicVineError):
 
 
 def _parse_issue_response(result: dict) -> ComicVineIssue:
-    """
-    Parse API response into ComicVineIssue.
-    
-    Args:
-        result: API response results dict
-        
-    Returns:
-        ComicVineIssue object
-    """
+    """Parse API response into ComicVineIssue."""
     volume = result.get("volume", {})
     return ComicVineIssue(
         id=str(result.get("id", "")),
@@ -62,6 +55,7 @@ class ComicVineClient:
         self.cache_enabled = cache_enabled
         self._last_request_time = 0.0
         self._cache: dict[str, dict] = {}
+        self._cookies: dict[str, str] = {}
         
         if cache_enabled:
             CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -97,18 +91,13 @@ class ComicVineClient:
 
     def _request(self, endpoint: str, params: dict) -> dict:
         """Make API request with rate limiting and caching."""
-        # Build cache key
         cache_key = f"{endpoint}:{json.dumps(params, sort_keys=True)}"
         
-        # Check cache
         if self.cache_enabled and cache_key in self._cache:
-            logger.debug(f"Cache hit: {cache_key}")
             return self._cache[cache_key]
         
-        # Rate limit
         self._rate_limit()
         
-        # Make request - create new dict to avoid mutating original
         request_params = {**params}
         request_params["api_key"] = self.api_key
         request_params["format"] = "json"
@@ -116,10 +105,33 @@ class ComicVineClient:
         url = f"{API_BASE}/{endpoint}"
         
         try:
-            with httpx.Client() as client:
-                response = client.get(url, params=request_params, timeout=30)
+            with httpx.Client(
+                http2=True,
+                follow_redirects=True,
+                cookies=self._cookies
+            ) as client:
+                response = client.get(
+                    url,
+                    params=request_params,
+                    timeout=30,
+                    headers={
+                        "User-Agent": USER_AGENT,
+                        "Accept": "application/json, text/javascript, */*; q=0.01",
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Accept-Encoding": "gzip, deflate, br",
+                        "Connection": "keep-alive",
+                        "X-Requested-With": "XMLHttpRequest",
+                    }
+                )
+                
+                self._cookies.update(dict(response.cookies))
+                
+                if response.status_code == 403:
+                    raise ComicVineError("Blocked by Cloudflare - try again later")
+                
                 response.raise_for_status()
                 data = response.json()
+                
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 420:
                 raise RateLimitError("Rate limit exceeded")
@@ -127,14 +139,12 @@ class ComicVineClient:
         except httpx.RequestError as e:
             raise ComicVineError(f"Request failed: {e}")
         
-        # Check for API errors
         status_code = data.get("status_code")
         if status_code == 100:
             raise InvalidAPIKeyError("Invalid API key")
         elif status_code != 1:
             raise ComicVineError(f"API error: {data.get('error', 'Unknown')}")
         
-        # Cache response
         if self.cache_enabled:
             self._cache[cache_key] = data
             self._save_cache()
@@ -142,60 +152,32 @@ class ComicVineClient:
         return data
 
     def get_issue(self, issue_id: str) -> ComicVineIssue:
-        """
-        Get issue details by ID.
-        
-        Args:
-            issue_id: Comic Vine issue ID (e.g., "139720")
-            
-        Returns:
-            ComicVineIssue with issue details
-        """
+        """Get issue details by ID."""
         data = self._request(f"issue/4000-{issue_id}", {
             "field_list": "id,volume,issue_number,name,cover_date,site_detail_url"
         })
-        
         return _parse_issue_response(data.get("results", {}))
 
     def get_volume(self, volume_id: str) -> dict:
-        """
-        Get volume details by ID.
-        
-        Args:
-            volume_id: Comic Vine volume ID (e.g., "23227")
-            
-        Returns:
-            Dict with volume details
-        """
+        """Get volume details by ID."""
         data = self._request(f"volume/4050-{volume_id}", {
             "field_list": "id,name,start_year,site_detail_url"
         })
         return data.get("results", {})
 
     def search_issue(self, query: str) -> list[ComicVineIssue]:
-        """
-        Search for issues by name.
-        
-        Args:
-            query: Search query
-            
-        Returns:
-            List of matching ComicVineIssue objects
-        """
+        """Search for issues by name."""
         data = self._request("search", {
             "query": query,
             "resources": "issue",
             "limit": 10
         })
-        
         return [_parse_issue_response(r) for r in data.get("results", [])]
 
     def validate_api_key(self) -> bool:
         """Validate the API key by making a test request."""
         try:
-            self._request("genres", {"limit": 1})
+            self._request("search", {"query": "batman", "limit": 1, "resources": "issue"})
             return True
-        except InvalidAPIKeyError:
-            return False
-        except ComicVineError:
+        except (InvalidAPIKeyError, ComicVineError):
             return False

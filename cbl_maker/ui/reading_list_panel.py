@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QListView,
     QPushButton, QLabel, QInputDialog, QMessageBox,
-    QTextEdit, QFileDialog
+    QTextEdit, QFileDialog, QSizePolicy
 )
 from PySide6.QtCore import Signal, Qt, QAbstractListModel, QModelIndex
 from PySide6.QtGui import QDrag
@@ -67,55 +67,206 @@ class ReadingListPanel(QWidget):
     def _setup_ui(self):
         """Set up the panel UI."""
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
         # Header
-        header_layout = QHBoxLayout()
+        header = QWidget()
+        header.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                border-bottom: 1px solid #3d3d3d;
+            }
+        """)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(12, 12, 12, 12)
+        
         label = QLabel("Reading List")
-        label.setStyleSheet("font-weight: bold;")
+        label.setStyleSheet("""
+            QLabel {
+                color: #e0e0e0;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """)
         header_layout.addWidget(label)
         
         self.name_label = QLabel(self.reading_list.name)
+        self.name_label.setStyleSheet("color: #808080; font-size: 12px;")
         header_layout.addWidget(self.name_label)
+        
         header_layout.addStretch()
         
-        layout.addLayout(header_layout)
+        layout.addWidget(header)
         
         # List view
         self.model = ReadingListModel(self.reading_list)
         self.list_view = QListView()
         self.list_view.setModel(self.model)
         self.list_view.setDragDropMode(QListView.InternalMove)
+        self.list_view.setStyleSheet("""
+            QListView {
+                background-color: #1e1e1e;
+                color: #e0e0e0;
+                border: none;
+                outline: none;
+            }
+            QListView::item {
+                padding: 8px 12px;
+                min-height: 32px;
+            }
+            QListView::item:selected {
+                background-color: #264f78;
+            }
+            QListView::item:hover:!selected {
+                background-color: #2d2d2d;
+            }
+        """)
         layout.addWidget(self.list_view)
         
-        # Preview
-        self.preview = QTextEdit()
-        self.preview.setReadOnly(True)
-        self.preview.setMaximumHeight(150)
-        self.preview.setPlaceholderText("CBL preview will appear here...")
-        layout.addWidget(self.preview)
-        
         # Buttons
-        btn_layout = QHBoxLayout()
+        btn_bar = QWidget()
+        btn_bar.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                border-top: 1px solid #3d3d3d;
+                border-bottom: 1px solid #3d3d3d;
+            }
+        """)
+        btn_layout = QHBoxLayout(btn_bar)
+        btn_layout.setContentsMargins(8, 8, 8, 8)
         
-        self.up_btn = QPushButton("↑ Up")
+        self.up_btn = QPushButton("⬆")
+        self.up_btn.setFixedSize(32, 32)
+        self.up_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3d3d3d;
+                color: #e0e0e0;
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #4d4d4d;
+            }
+        """)
         self.up_btn.clicked.connect(self._move_up)
         btn_layout.addWidget(self.up_btn)
         
-        self.down_btn = QPushButton("↓ Down")
+        self.down_btn = QPushButton("⬇")
+        self.down_btn.setFixedSize(32, 32)
+        self.down_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3d3d3d;
+                color: #e0e0e0;
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #4d4d4d;
+            }
+        """)
         self.down_btn.clicked.connect(self._move_down)
         btn_layout.addWidget(self.down_btn)
         
-        self.remove_btn = QPushButton("Remove")
+        self.remove_btn = QPushButton("🗑")
+        self.remove_btn.setFixedSize(32, 32)
+        self.remove_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3d3d3d;
+                color: #e0e0e0;
+                border: none;
+                border-radius: 4px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #c42b1c;
+            }
+        """)
         self.remove_btn.clicked.connect(self._remove_selected)
         btn_layout.addWidget(self.remove_btn)
         
         btn_layout.addStretch()
         
-        self.export_btn = QPushButton("Export CBL")
-        self.export_btn.clicked.connect(self.export_cbl)
-        btn_layout.addWidget(self.export_btn)
+        layout.addWidget(btn_bar)
         
-        layout.addLayout(btn_layout)
+        # Preview
+        preview_container = QWidget()
+        preview_container.setStyleSheet("""
+            QWidget {
+                background-color: #1e1e1e;
+            }
+        """)
+        preview_layout = QVBoxLayout(preview_container)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        
+        preview_label = QLabel("CBL Preview")
+        preview_label.setStyleSheet("""
+            QLabel {
+                color: #808080;
+                padding: 8px 12px;
+                font-size: 11px;
+                background-color: #2b2b2b;
+                border-top: 1px solid #3d3d3d;
+            }
+        """)
+        preview_layout.addWidget(preview_label)
+        
+        self.preview = QTextEdit()
+        self.preview.setReadOnly(True)
+        self.preview.setMaximumHeight(120)
+        self.preview.setPlaceholderText("CBL preview will appear here...")
+        self.preview.setStyleSheet("""
+            QTextEdit {
+                background-color: #1e1e1e;
+                color: #d4d4d4;
+                border: none;
+                font-family: monospace;
+                font-size: 11px;
+                padding: 8px;
+            }
+        """)
+        preview_layout.addWidget(self.preview)
+        
+        layout.addWidget(preview_container)
+        
+        # Export button
+        export_bar = QWidget()
+        export_bar.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                border-top: 1px solid #3d3d3d;
+            }
+        """)
+        export_layout = QHBoxLayout(export_bar)
+        export_layout.setContentsMargins(8, 8, 8, 8)
+        
+        self.export_btn = QPushButton("Export CBL")
+        self.export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0e639c;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1177bb;
+            }
+            QPushButton:pressed {
+                background-color: #094771;
+            }
+            QPushButton:disabled {
+                background-color: #3d3d3d;
+                color: #6d6d6d;
+            }
+        """)
+        self.export_btn.clicked.connect(self.export_cbl)
+        export_layout.addWidget(self.export_btn)
+        
+        layout.addWidget(export_bar)
 
     def add_comic(self, comic: Comic):
         """Add a comic to the reading list."""
@@ -163,7 +314,6 @@ class ReadingListPanel(QWidget):
             QMessageBox.warning(self, "Error", "Reading list is empty")
             return
         
-        # Get list name
         name, ok = QInputDialog.getText(
             self, "Reading List Name",
             "Enter name for the reading list:",
@@ -175,7 +325,6 @@ class ReadingListPanel(QWidget):
         self.reading_list.name = name
         self.name_label.setText(name)
         
-        # Get save location
         path, _ = QFileDialog.getSaveFileName(
             self, "Save CBL File",
             f"{name}.cbl",

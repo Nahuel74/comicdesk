@@ -3,13 +3,13 @@
 from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableView,
-    QPushButton, QLabel, QHeaderView, QMenu
+    QPushButton, QLabel, QHeaderView, QMenu, QSizePolicy
 )
 from PySide6.QtCore import Signal, Qt, QThread
-from PySide6.QtGui import QStandardItemModel, QStandardItem, QDesktopServices
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QDesktopServices, QAction
 
 from cbl_maker.models import Comic
-from cbl_maker.services.cbz_reader import scan_folder
+from cbl_maker.services.cbz_reader import read_cbz_metadata
 from cbl_maker.services.comicvine_api import ComicVineClient
 from cbl_maker.utils.url_parser import extract_comicvine_ids
 
@@ -34,7 +34,6 @@ class ScanWorker(QThread):
                 break
             if cbz_file.is_file():
                 self.progress.emit(str(cbz_file.name))
-                from cbl_maker.services.cbz_reader import read_cbz_metadata
                 comic = read_cbz_metadata(cbz_file)
                 comics.append(comic)
         
@@ -46,7 +45,7 @@ class ScanWorker(QThread):
 
 class EnrichWorker(QThread):
     """Worker thread for enriching comics from Comic Vine."""
-    progress = Signal(int, int)  # current, total
+    progress = Signal(int, int)
     finished = Signal(list)
 
     def __init__(self, comics: list[Comic], api_key: str):
@@ -56,14 +55,12 @@ class EnrichWorker(QThread):
         self._cancelled = False
 
     def run(self):
-        client = ComicVineClient(self.api_key)
         total = len(self.comics)
         
         for i, comic in enumerate(self.comics):
             if self._cancelled:
                 break
             
-            # Extract CV IDs from web links if present
             if comic.web_links and not comic.has_cv_ids:
                 for url in comic.web_links:
                     ids = extract_comicvine_ids(url)
@@ -91,15 +88,14 @@ class ComicListTable(QTableView):
         """Set up the table model."""
         self.model = QStandardItemModel()
         self.model.setHorizontalHeaderLabels([
-            "File", "Series", "Number", "Volume", "Year", "CV URL", "Status"
+            "File", "Series", "Number", "Volume", "Year", "Status"
         ])
         self.setModel(self.model)
         
-        # Configure header
         header = self.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
-        for col in range(2, 7):
+        for col in range(2, 6):
             header.setSectionResizeMode(col, QHeaderView.ResizeToContents)
         
         self.setSelectionBehavior(QTableView.SelectRows)
@@ -120,31 +116,113 @@ class ComicList(QWidget):
     def _setup_ui(self):
         """Set up the panel UI."""
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         
         # Header
-        header_layout = QHBoxLayout()
+        header = QWidget()
+        header.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                border-bottom: 1px solid #3d3d3d;
+                padding: 8px;
+            }
+        """)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(12, 12, 12, 12)
+        
         label = QLabel("Comics")
-        label.setStyleSheet("font-weight: bold;")
+        label.setStyleSheet("""
+            QLabel {
+                color: #e0e0e0;
+                font-size: 14px;
+                font-weight: bold;
+            }
+        """)
         header_layout.addWidget(label)
         
+        header_layout.addStretch()
+        
         self.enrich_btn = QPushButton("Enrich from Comic Vine")
+        self.enrich_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0e639c;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #1177bb;
+            }
+            QPushButton:pressed {
+                background-color: #094771;
+            }
+            QPushButton:disabled {
+                background-color: #3d3d3d;
+                color: #6d6d6d;
+            }
+        """)
         self.enrich_btn.clicked.connect(self._on_enrich)
         header_layout.addWidget(self.enrich_btn)
         
-        layout.addLayout(header_layout)
+        layout.addWidget(header)
         
         # Table
         self.table = ComicListTable()
+        self.table.setStyleSheet("""
+            QTableView {
+                background-color: #1e1e1e;
+                color: #e0e0e0;
+                border: none;
+                gridline-color: #2d2d2d;
+            }
+            QTableView::item {
+                padding: 6px;
+            }
+            QTableView::item:selected {
+                background-color: #264f78;
+            }
+            QTableView::item:hover:!selected {
+                background-color: #2d2d2d;
+            }
+            QHeaderView::section {
+                background-color: #2b2b2b;
+                color: #e0e0e0;
+                padding: 8px;
+                border: none;
+                border-right: 1px solid #3d3d3d;
+                border-bottom: 1px solid #3d3d3d;
+                font-weight: bold;
+            }
+        """)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.table)
         
-        # Status
+        # Status bar
+        status_bar = QWidget()
+        status_bar.setStyleSheet("""
+            QWidget {
+                background-color: #2b2b2b;
+                border-top: 1px solid #3d3d3d;
+            }
+        """)
+        status_layout = QHBoxLayout(status_bar)
+        status_layout.setContentsMargins(12, 8, 12, 8)
+        
         self.status_label = QLabel("No comics loaded")
-        layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet("color: #808080; font-size: 12px;")
+        status_layout.addWidget(self.status_label)
+        
+        layout.addWidget(status_bar)
 
     def load_folder(self, path: Path):
         """Load comics from a folder."""
         self.status_label.setText("Scanning...")
+        self.table.model.removeRows(0, self.table.model.rowCount())
+        
         self.worker = ScanWorker(path)
         self.worker.finished.connect(self._on_scan_complete)
         self.worker.progress.connect(lambda p: self.status_label.setText(f"Scanning: {p}"))
@@ -167,10 +245,8 @@ class ComicList(QWidget):
                 QStandardItem(comic.issue_number),
                 QStandardItem(comic.volume),
                 QStandardItem(comic.year),
-                QStandardItem(comic.web_links[0] if comic.web_links else ""),
                 QStandardItem(comic.status)
             ]
-            # Make some columns read-only
             for item in row:
                 item.setEditable(False)
             self.table.model.appendRow(row)
@@ -201,13 +277,30 @@ class ComicList(QWidget):
     def _show_context_menu(self, position):
         """Show context menu for table."""
         menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #2b2b2b;
+                color: #e0e0e0;
+                border: 1px solid #3d3d3d;
+                padding: 4px;
+            }
+            QMenu::item {
+                padding: 6px 24px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #264f78;
+            }
+        """)
         
         selected_rows = self.table.selectionModel().selectedRows()
         if selected_rows:
-            menu.addAction("Add to Reading List", self._add_to_list)
+            add_action = menu.addAction("➕ Add to Reading List")
+            add_action.triggered.connect(self._add_to_list)
             menu.addSeparator()
         
-        menu.addAction("Open CV URL", self._open_cv_url)
+        open_action = menu.addAction("🌐 Open CV URL")
+        open_action.triggered.connect(self._open_cv_url)
         
         menu.exec(self.table.viewport().mapToGlobal(position))
 
@@ -228,5 +321,4 @@ class ComicList(QWidget):
             if row < len(self.comics):
                 comic = self.comics[row]
                 if comic.web_links:
-                    from PySide6.QtCore import QUrl
-                    QDesktopServices.openUrl(QUrl(comic.web_links[0]))
+                    QDesktopServices.openUrl(comic.web_links[0])

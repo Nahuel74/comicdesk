@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit,
     QPushButton, QHBoxLayout, QCheckBox, QFileDialog,
-    QMessageBox
+    QMessageBox, QLabel, QWidget
 )
 from PySide6.QtCore import QThread, Signal
 
@@ -36,29 +36,95 @@ class ConfigDialog(QDialog):
     def _setup_ui(self):
         """Set up the dialog UI."""
         self.setWindowTitle("Settings")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(450)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #1e1e1e;
+            }
+            QLabel {
+                color: #e0e0e0;
+            }
+            QLineEdit {
+                background-color: #3c3c3c;
+                color: #e0e0e0;
+                border: 1px solid #3d3d3d;
+                padding: 8px;
+                border-radius: 4px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #0e639c;
+            }
+            QCheckBox {
+                color: #e0e0e0;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 16px;
+                height: 16px;
+            }
+        """)
         
         layout = QVBoxLayout(self)
+        layout.setSpacing(16)
+        
+        # Title
+        title = QLabel("Settings")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #e0e0e0;")
+        layout.addWidget(title)
+        
+        # Form
         form = QFormLayout()
+        form.setSpacing(12)
         
         # API Key
+        api_key_label = QLabel("Comic Vine API Key:")
         self.api_key_input = QLineEdit(self.config.api_key)
         self.api_key_input.setEchoMode(QLineEdit.Password)
-        form.addRow("Comic Vine API Key:", self.api_key_input)
+        self.api_key_input.setPlaceholderText("Enter your API key...")
+        form.addRow(api_key_label, self.api_key_input)
         
         # Validate button
+        validate_layout = QHBoxLayout()
         self.validate_btn = QPushButton("Validate Key")
+        self.validate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3d3d3d;
+                color: #e0e0e0;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #4d4d4d;
+            }
+        """)
         self.validate_btn.clicked.connect(self._validate_key)
-        form.addRow("", self.validate_btn)
+        validate_layout.addWidget(self.validate_btn)
+        validate_layout.addStretch()
+        form.addRow("", validate_layout)
         
         # Default folder
+        folder_label = QLabel("Default Folder:")
         folder_layout = QHBoxLayout()
         self.folder_input = QLineEdit(self.config.default_folder)
+        self.folder_input.setPlaceholderText("Select default folder...")
         folder_btn = QPushButton("Browse...")
+        folder_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3d3d3d;
+                color: #e0e0e0;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #4d4d4d;
+            }
+        """)
         folder_btn.clicked.connect(self._browse_folder)
         folder_layout.addWidget(self.folder_input)
         folder_layout.addWidget(folder_btn)
-        form.addRow("Default Folder:", folder_layout)
+        form.addRow(folder_label, folder_layout)
         
         # Cache enabled
         self.cache_checkbox = QCheckBox("Enable API cache")
@@ -69,13 +135,40 @@ class ConfigDialog(QDialog):
         
         # Buttons
         btn_layout = QHBoxLayout()
-        save_btn = QPushButton("Save")
-        save_btn.clicked.connect(self.accept)
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
         btn_layout.addStretch()
-        btn_layout.addWidget(save_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3d3d3d;
+                color: #e0e0e0;
+                border: none;
+                padding: 8px 24px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #4d4d4d;
+            }
+        """)
+        cancel_btn.clicked.connect(self.reject)
         btn_layout.addWidget(cancel_btn)
+        
+        save_btn = QPushButton("Save")
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #0e639c;
+                color: white;
+                border: none;
+                padding: 8px 24px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1177bb;
+            }
+        """)
+        save_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(save_btn)
         
         layout.addLayout(btn_layout)
 

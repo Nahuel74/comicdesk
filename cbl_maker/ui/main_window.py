@@ -1,10 +1,12 @@
 """Main application window."""
 
+from pathlib import Path
+
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QSplitter, QMenuBar, QStatusBar, QLabel
+    QMainWindow, QSplitter, QStatusBar, QMenuBar, QMenu
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction
 
 from cbl_maker.config import Config
 from cbl_maker.ui.config_dialog import ConfigDialog
@@ -22,21 +24,53 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._setup_menu()
         self._setup_statusbar()
+        self._load_initial_folder()
 
     def _setup_ui(self):
         """Set up the main UI layout."""
         self.setWindowTitle("CBL Maker")
         self.setMinimumSize(1200, 700)
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #1e1e1e;
+            }
+            QSplitter::handle {
+                background-color: #3d3d3d;
+                width: 2px;
+            }
+            QMenuBar {
+                background-color: #2b2b2b;
+                color: #e0e0e0;
+                border-bottom: 1px solid #3d3d3d;
+            }
+            QMenuBar::item:selected {
+                background-color: #3d3d3d;
+            }
+            QMenu {
+                background-color: #2b2b2b;
+                color: #e0e0e0;
+                border: 1px solid #3d3d3d;
+            }
+            QMenu::item:selected {
+                background-color: #264f78;
+            }
+            QStatusBar {
+                background-color: #2b2b2b;
+                color: #e0e0e0;
+                border-top: 1px solid #3d3d3d;
+            }
+        """)
         
         # Main splitter
         splitter = QSplitter(Qt.Horizontal)
+        splitter.setStyleSheet("QSplitter { background-color: #1e1e1e; }")
         
         # Left panel - folder browser
-        self.folder_panel = FolderPanel()
+        self.folder_panel = FolderPanel(default_folder=self.config.default_folder)
         self.folder_panel.folder_selected.connect(self._on_folder_selected)
         
         # Center panel - comic list
-        self.comic_list = ComicList()
+        self.comic_list = ComicList(config=self.config)
         self.comic_list.comics_selected.connect(self._on_comics_selected)
         
         # Right panel - reading list
@@ -55,13 +89,26 @@ class MainWindow(QMainWindow):
         
         # File menu
         file_menu = menubar.addMenu("&File")
-        file_menu.addAction("&Settings", self._show_settings)
+        
+        settings_action = QAction("&Settings", self)
+        settings_action.setShortcut("Ctrl+,")
+        settings_action.triggered.connect(self._show_settings)
+        file_menu.addAction(settings_action)
+        
         file_menu.addSeparator()
-        file_menu.addAction("E&xit", self.close)
+        
+        exit_action = QAction("E&xit", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
         
         # Edit menu
         edit_menu = menubar.addMenu("&Edit")
-        edit_menu.addAction("&Export CBL", self.reading_list_panel.export_cbl)
+        
+        export_action = QAction("&Export CBL", self)
+        export_action.setShortcut("Ctrl+E")
+        export_action.triggered.connect(self.reading_list_panel.export_cbl)
+        edit_menu.addAction(export_action)
 
     def _setup_statusbar(self):
         """Set up the status bar."""
@@ -69,12 +116,21 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.statusbar)
         self.statusbar.showMessage("Ready")
 
+    def _load_initial_folder(self):
+        """Load initial folder if default is configured."""
+        if self.config.default_folder:
+            default_path = Path(self.config.default_folder)
+            if default_path.exists() and default_path.is_dir():
+                self._on_folder_selected(default_path)
+
     def _show_settings(self):
         """Show the settings dialog."""
         dialog = ConfigDialog(self.config, self)
         if dialog.exec():
             self.config = dialog.get_config()
             self.config.save()
+            self.comic_list.config = self.config
+            self.folder_panel.set_default_folder(self.config.default_folder)
             self.statusbar.showMessage("Settings saved")
 
     def _on_folder_selected(self, path):
