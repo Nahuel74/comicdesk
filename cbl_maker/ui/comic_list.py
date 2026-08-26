@@ -11,6 +11,37 @@ from PySide6.QtGui import QStandardItemModel, QStandardItem, QDesktopServices
 from cbl_maker.models import Comic
 from cbl_maker.services.cbz_reader import scan_folder
 from cbl_maker.services.comicvine_api import ComicVineClient
+from cbl_maker.utils.url_parser import extract_comicvine_ids
+
+
+class ScanWorker(QThread):
+    """Worker thread for folder scanning."""
+    finished = Signal(list)
+    progress = Signal(str)
+
+    def __init__(self, path: Path, recursive: bool = True):
+        super().__init__()
+        self.path = path
+        self.recursive = recursive
+        self._cancelled = False
+
+    def run(self):
+        comics = []
+        pattern = "**/*.cbz" if self.recursive else "*.cbz"
+        
+        for cbz_file in sorted(self.path.glob(pattern)):
+            if self._cancelled:
+                break
+            if cbz_file.is_file():
+                self.progress.emit(str(cbz_file.name))
+                from cbl_maker.services.cbz_reader import read_cbz_metadata
+                comic = read_cbz_metadata(cbz_file)
+                comics.append(comic)
+        
+        self.finished.emit(comics)
+
+    def cancel(self):
+        self._cancelled = True
 
 
 class EnrichWorker(QThread):
@@ -18,7 +49,7 @@ class EnrichWorker(QThread):
     progress = Signal(int, int)  # current, total
     finished = Signal(list)
 
-    def __init__(self, comics, api_key):
+    def __init__(self, comics: list[Comic], api_key: str):
         super().__init__()
         self.comics = comics
         self.api_key = api_key
@@ -32,13 +63,13 @@ class EnrichWorker(QThread):
             if self._cancelled:
                 break
             
+            # Extract CV IDs from web links if present
             if comic.web_links and not comic.has_cv_ids:
-                from cbl_maker.utils.url_parser import extract_comicvine_ids
                 for url in comic.web_links:
                     ids = extract_comicvine_ids(url)
-                    if ids.get("issue_id"):
+                    if ids.get("issue_id") and not comic.cv_issue_id:
                         comic.cv_issue_id = ids["issue_id"]
-                    if ids.get("series_id"):
+                    if ids.get("series_id") and not comic.cv_series_id:
                         comic.cv_series_id = ids["series_id"]
             
             self.progress.emit(i + 1, total)
@@ -80,9 +111,10 @@ class ComicList(QWidget):
 
     comics_selected = Signal(list)
 
-    def __init__(self):
+    def __init__(self, config=None):
         super().__init__()
         self.comics = []
+        self.config = config
         self._setup_ui()
 
     def _setup_ui(self):
@@ -118,7 +150,7 @@ class ComicList(QWidget):
         self.worker.progress.connect(lambda p: self.status_label.setText(f"Scanning: {p}"))
         self.worker.start()
 
-    def _on_scan_complete(self, comics):
+    def _on_scan_complete(self, comics: list[Comic]):
         """Handle scan completion."""
         self.comics = comics
         self._populate_table()
@@ -145,10 +177,26 @@ class ComicList(QWidget):
 
     def _on_enrich(self):
         """Enrich comics from Comic Vine."""
-        # TODO: Get API key from config
+        if not self.config or not self.config.api_key:
+            self.status_label.setText("Error: No API key configured")
+            return
+        
         self.status_label.setText("Enriching from Comic Vine...")
-        # This would need the API key from config
-        pass
+        self.enrich_btn.setEnabled(False)
+        
+        self.enrich_worker = EnrichWorker(self.comics, self.config.api_key)
+        self.enrich_worker.finished.connect(self._on_enrich_complete)
+        self.enrich_worker.progress.connect(
+            lambda cur, tot: self.status_label.setText(f"Enriching: {cur}/{tot}")
+        )
+        self.enrich_worker.start()
+
+    def _on_enrich_complete(self, comics: list[Comic]):
+        """Handle enrich completion."""
+        self.comics = comics
+        self._populate_table()
+        self.enrich_btn.setEnabled(True)
+        self.status_label.setText(f"Enriched {len(comics)} comics")
 
     def _show_context_menu(self, position):
         """Show context menu for table."""

@@ -12,6 +12,32 @@ CV_URL_PATTERN = re.compile(
 )
 
 
+def _parse_cv_id(full_id: str) -> dict[str, Optional[str]]:
+    """
+    Parse a Comic Vine ID string into series_id and issue_id.
+    
+    Args:
+        full_id: String like "4000-139720" or "4050-23227"
+        
+    Returns:
+        Dict with 'series_id' and 'issue_id' (both Optional[str])
+    """
+    result = {"series_id": None, "issue_id": None}
+    
+    if "-" not in full_id:
+        return result
+    
+    type_prefix, id_number = full_id.split("-", 1)
+    
+    # 4000 = issue, 4050 = volume/series
+    if type_prefix == "4000":
+        result["issue_id"] = id_number
+    elif type_prefix == "4050":
+        result["series_id"] = id_number
+    
+    return result
+
+
 def extract_comicvine_ids(url: str) -> dict[str, Optional[str]]:
     """
     Extract series_id and issue_id from a Comic Vine URL.
@@ -22,22 +48,11 @@ def extract_comicvine_ids(url: str) -> dict[str, Optional[str]]:
     Returns:
         Dict with 'series_id' and 'issue_id' (both Optional[str])
     """
-    result = {"series_id": None, "issue_id": None}
-    
     match = CV_URL_PATTERN.search(url)
     if not match:
-        return result
+        return {"series_id": None, "issue_id": None}
     
-    full_id = match.group(1)  # e.g., "4000-139720"
-    type_prefix, id_number = full_id.split("-", 1)
-    
-    # 4000 = issue, 4050 = volume/series
-    if type_prefix == "4000":
-        result["issue_id"] = id_number
-    elif type_prefix == "4050":
-        result["series_id"] = id_number
-    
-    return result
+    return _parse_cv_id(match.group(1))
 
 
 def extract_all_cv_ids(text: str) -> list[dict[str, Optional[str]]]:
@@ -52,15 +67,5 @@ def extract_all_cv_ids(text: str) -> list[dict[str, Optional[str]]]:
     """
     results = []
     for match in CV_URL_PATTERN.finditer(text):
-        full_id = match.group(1)
-        type_prefix, id_number = full_id.split("-", 1)
-        
-        entry = {"series_id": None, "issue_id": None}
-        if type_prefix == "4000":
-            entry["issue_id"] = id_number
-        elif type_prefix == "4050":
-            entry["series_id"] = id_number
-        
-        results.append(entry)
-    
+        results.append(_parse_cv_id(match.group(1)))
     return results

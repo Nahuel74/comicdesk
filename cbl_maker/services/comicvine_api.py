@@ -32,6 +32,28 @@ class InvalidAPIKeyError(ComicVineError):
     pass
 
 
+def _parse_issue_response(result: dict) -> ComicVineIssue:
+    """
+    Parse API response into ComicVineIssue.
+    
+    Args:
+        result: API response results dict
+        
+    Returns:
+        ComicVineIssue object
+    """
+    volume = result.get("volume", {})
+    return ComicVineIssue(
+        id=str(result.get("id", "")),
+        series_id=str(volume.get("id", "")),
+        series_name=volume.get("name", ""),
+        volume=str(volume.get("volume_number", "")),
+        issue_number=str(result.get("issue_number", "")),
+        cover_date=result.get("cover_date", ""),
+        web_url=result.get("site_detail_url", "")
+    )
+
+
 class ComicVineClient:
     """Client for Comic Vine API with rate limiting and caching."""
 
@@ -86,15 +108,16 @@ class ComicVineClient:
         # Rate limit
         self._rate_limit()
         
-        # Make request
-        params["api_key"] = self.api_key
-        params["format"] = "json"
+        # Make request - create new dict to avoid mutating original
+        request_params = {**params}
+        request_params["api_key"] = self.api_key
+        request_params["format"] = "json"
         
         url = f"{API_BASE}/{endpoint}"
         
         try:
             with httpx.Client() as client:
-                response = client.get(url, params=params, timeout=30)
+                response = client.get(url, params=request_params, timeout=30)
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as e:
@@ -132,18 +155,7 @@ class ComicVineClient:
             "field_list": "id,volume,issue_number,name,cover_date,site_detail_url"
         })
         
-        result = data.get("results", {})
-        volume = result.get("volume", {})
-        
-        return ComicVineIssue(
-            id=str(result.get("id", issue_id)),
-            series_id=str(volume.get("id", "")),
-            series_name=volume.get("name", ""),
-            volume=str(volume.get("volume_number", "")),
-            issue_number=str(result.get("issue_number", "")),
-            cover_date=result.get("cover_date", ""),
-            web_url=result.get("site_detail_url", "")
-        )
+        return _parse_issue_response(data.get("results", {}))
 
     def get_volume(self, volume_id: str) -> dict:
         """
@@ -176,20 +188,7 @@ class ComicVineClient:
             "limit": 10
         })
         
-        issues = []
-        for result in data.get("results", []):
-            volume = result.get("volume", {})
-            issues.append(ComicVineIssue(
-                id=str(result.get("id", "")),
-                series_id=str(volume.get("id", "")),
-                series_name=volume.get("name", ""),
-                volume=str(volume.get("volume_number", "")),
-                issue_number=str(result.get("issue_number", "")),
-                cover_date=result.get("cover_date", ""),
-                web_url=result.get("site_detail_url", "")
-            ))
-        
-        return issues
+        return [_parse_issue_response(r) for r in data.get("results", [])]
 
     def validate_api_key(self) -> bool:
         """Validate the API key by making a test request."""

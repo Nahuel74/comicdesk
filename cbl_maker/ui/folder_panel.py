@@ -5,10 +5,10 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QTreeView, QPushButton, QLabel
 )
-from PySide6.QtCore import Signal, QThread
+from PySide6.QtCore import Signal, QThread, QDir
 from PySide6.QtGui import QFileSystemModel
 
-from cbl_maker.services.cbz_reader import scan_folder
+from cbl_maker.services.cbz_reader import read_cbz_metadata
 
 
 class ScanWorker(QThread):
@@ -16,7 +16,7 @@ class ScanWorker(QThread):
     finished = Signal(list)
     progress = Signal(str)
 
-    def __init__(self, path, recursive=True):
+    def __init__(self, path: Path, recursive: bool = True):
         super().__init__()
         self.path = path
         self.recursive = recursive
@@ -31,7 +31,6 @@ class ScanWorker(QThread):
                 break
             if cbz_file.is_file():
                 self.progress.emit(str(cbz_file.name))
-                from cbl_maker.services.cbz_reader import read_cbz_metadata
                 comic = read_cbz_metadata(cbz_file)
                 comics.append(comic)
         
@@ -62,7 +61,7 @@ class FolderPanel(QWidget):
         self.tree = QTreeView()
         self.model = QFileSystemModel()
         self.model.setRootPath(str(Path.home()))
-        self.model.setFilter(QDirs.Dirs | QDirs.NoDotAndDotDot)
+        self.model.setFilter(QDir.Dirs | QDir.NoDotAndDotDot)
         self.tree.setModel(self.model)
         self.tree.setRootIndex(self.model.index(str(Path.home())))
         self.tree.clicked.connect(self._on_click)
@@ -85,7 +84,3 @@ class FolderPanel(QWidget):
         if index.isValid():
             path = Path(self.model.filePath(index))
             self.folder_selected.emit(path)
-
-
-# Import QDirs at module level
-from PySide6.QtCore import QDirs

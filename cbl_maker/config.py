@@ -1,9 +1,11 @@
 """Configuration management for CBL Maker."""
 
 import json
+import logging
 from pathlib import Path
 from dataclasses import dataclass, asdict
 
+logger = logging.getLogger(__name__)
 
 CONFIG_DIR = Path.home() / ".config" / "cbl-maker"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -26,7 +28,10 @@ class Config:
     def load(cls) -> "Config":
         """Load config from file."""
         if CONFIG_FILE.exists():
-            with open(CONFIG_FILE) as f:
-                data = json.load(f)
-                return cls(**data)
+            try:
+                with open(CONFIG_FILE) as f:
+                    data = json.load(f)
+                    return cls(**data)
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Failed to load config: {e}")
         return cls()
