@@ -5,9 +5,10 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QFileDialog
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from cbl_maker.models import Comic
+from cbl_maker.services.cbl_reader import CBLDocument, CBLParseError, ReconciliationResult
 from cbl_maker.ui.main_window import MainWindow
 from cbl_maker.ui.reading_list_panel import ReadingListPanel
 
@@ -22,6 +23,17 @@ def panel(qapp):
     widget = ReadingListPanel()
     yield widget
     widget.close()
+
+
+def _stub_import(monkeypatch, document, result, answer=QMessageBox.StandardButton.Yes,
+                 path="import.cbl"):
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: (path, ""))
+    monkeypatch.setattr("cbl_maker.ui.reading_list_panel.read_cbl", lambda _path: document)
+    monkeypatch.setattr(
+        "cbl_maker.ui.reading_list_panel.reconcile_cbl",
+        lambda _document, _comics: result,
+    )
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: answer)
 
 
 def test_valid_rename_updates_model_and_cancel_restores(panel):
@@ -169,3 +181,120 @@ def test_export_shortcut_is_preserved(qapp):
         assert export.shortcut().toString() == "Ctrl+E"
     finally:
         window.close()
+
+
+def test_import_action_is_in_file_menu_and_uses_import_shortcut(qapp):
+    window = MainWindow()
+    try:
+        file_menu = next(
+            action.menu() for action in window.menuBar().actions()
+            if action.text().replace("&", "") == "File"
+        )
+        import_action = next(
+            action for action in file_menu.actions()
+            if action.text().replace("&", "") == "Import CBL"
+        )
+        assert import_action.shortcut().toString() == "Ctrl+I"
+        assert window.import_action is import_action
+    finally:
+        window.close()
+
+
+def test_import_cancelled_at_file_dialog_keeps_current_list(panel, monkeypatch):
+    comic = Comic(path="current.cbz", series_name="Current", issue_number="1")
+    panel.add_comic(comic)
+    panel.name_label.setText("Current List")
+    panel.header.commit_name()
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("", ""))
+    panel.import_cbl()
+    assert panel.reading_list.name == "Current List"
+    assert panel.reading_list.comics == [comic]
+    assert panel.is_dirty is True
+
+def test_import_parse_error_reports_failure_without_replacing_list(panel, monkeypatch):
+    comic = Comic(path="current.cbz", series_name="Current", issue_number="1")
+    panel.add_comic(comic)
+    messages = []
+    panel.status_message.connect(messages.append)
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("broken.cbl", ""))
+    monkeypatch.setattr(
+        "cbl_maker.ui.reading_list_panel.read_cbl",
+        lambda _path: (_ for _ in ()).throw(CBLParseError("Invalid CBL XML")),
+    )
+
+    panel.import_cbl()
+    assert panel.reading_list.comics == [comic]
+    assert messages == ["Import failed: Invalid CBL XML"]
+
+def test_dirty_import_confirmation_mentions_unsaved_changes_and_can_be_declined(
+    panel, monkeypatch
+):
+    comic = Comic(path="current.cbz", series_name="Current", issue_number="1")
+    panel.add_comic(comic)
+    prompts = []
+    def decline(_parent, _title, text, *_args):
+        prompts.append(text)
+        return QMessageBox.StandardButton.No
+
+    _stub_import(
+        monkeypatch, CBLDocument("Imported", []), ReconciliationResult([], [], []),
+        QMessageBox.StandardButton.No, "next.cbl",
+    )
+    monkeypatch.setattr(QMessageBox, "question", decline)
+    panel.import_cbl()
+    assert prompts and "unsaved changes" in prompts[0]
+    assert panel.reading_list.name == "New Reading List"
+    assert panel.reading_list.comics == [comic]
+    assert panel.is_dirty is True
+
+def test_import_yes_explicitly_replaces_existing_list(panel, monkeypatch):
+    current = Comic(path="current.cbz", series_name="Current", issue_number="1")
+    imported = Comic(path="imported.cbz", series_name="Imported", issue_number="2")
+    panel.add_comic(current)
+    _stub_import(
+        monkeypatch, CBLDocument("Imported List", [], "manual", "asc"),
+        ReconciliationResult([imported], [], []), path="next.cbl",
+    )
+
+    panel.import_cbl()
+    assert panel.reading_list.name == "Imported List"
+    assert panel.reading_list.comics == [imported]
+    assert panel.count_label.text() == "1 item"
+    assert panel.is_dirty is True
+
+def test_import_syncs_sorted_controls_from_document(panel, monkeypatch):
+    imported = Comic(path="imported.cbz", series_name="Imported", issue_number="2")
+    _stub_import(
+        monkeypatch, CBLDocument("Sorted", [], "title", "desc"),
+        ReconciliationResult([imported], [], []), path="sorted.cbl",
+    )
+
+    panel.import_cbl()
+    assert panel.manual_check.isChecked() is False
+    assert panel.sort_combo.currentData() == "title"
+    assert panel.direction_combo.currentData() == "desc"
+def test_import_syncs_manual_control_from_document(panel, monkeypatch):
+    imported = Comic(path="imported.cbz", series_name="Imported", issue_number="2")
+    _stub_import(
+        monkeypatch, CBLDocument("Manual", [], "manual", "asc"),
+        ReconciliationResult([imported], [], []), path="manual.cbl",
+    )
+
+    panel.import_cbl()
+    assert panel.manual_check.isChecked() is True
+def test_importing_empty_list_replaces_contents_and_updates_controls(panel, monkeypatch):
+    panel.add_comic(Comic(path="current.cbz", series_name="Current", issue_number="1"))
+    messages = []
+    panel.status_message.connect(messages.append)
+    _stub_import(
+        monkeypatch, CBLDocument("Empty List", []), ReconciliationResult([], [], []),
+        path="empty.cbl",
+    )
+
+    panel.import_cbl()
+    assert panel.reading_list.name == "Empty List"
+    assert panel.reading_list.comics == []
+    assert panel.count_label.text() == "0 items"
+    assert panel.clear_btn.isEnabled() is False
+    assert panel.export_btn.isEnabled() is False
+    assert messages == ["Imported 0 comics; 0 not located"]

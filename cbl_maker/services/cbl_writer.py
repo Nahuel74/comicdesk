@@ -1,10 +1,23 @@
 """CBL file writer - generates ComicRack compatible reading lists."""
 
 from pathlib import Path
-from xml.etree.ElementTree import Element, SubElement, tostring
+from xml.etree.ElementTree import Element, SubElement, register_namespace, tostring
 from xml.dom.minidom import parseString
 
 from cbl_maker.models import ReadingList, Comic
+
+
+CBL_MAKER_NAMESPACE = "https://cbl-maker.dev/xml/metadata"
+_CV_METADATA_FIELDS = (
+    ("Id", "id"),
+    ("SeriesId", "series_id"),
+    ("SeriesName", "series_name"),
+    ("Volume", "volume"),
+    ("IssueNumber", "issue_number"),
+    ("CoverDate", "cover_date"),
+    ("WebUrl", "web_url"),
+)
+register_namespace("cblmaker", CBL_MAKER_NAMESPACE)
 
 
 def generate_cbl(reading_list: ReadingList) -> str:
@@ -21,6 +34,10 @@ def generate_cbl(reading_list: ReadingList) -> str:
     root = Element("ReadingList")
     root.set("xmlns:xsd", "http://www.w3.org/2001/XMLSchema")
     root.set("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
+    # ComicRack-compatible readers use these root attributes to retain the
+    # list's configured ordering without adding non-standard Book fields.
+    root.set("orderedby", reading_list.ordered_by)
+    root.set("orderdirection", reading_list.order_direction)
     
     # Name
     name_elem = SubElement(root, "Name")
@@ -41,6 +58,8 @@ def generate_cbl(reading_list: ReadingList) -> str:
             db_elem.set("Name", "cv")
             db_elem.set("Series", comic.cv_series_id or "")
             db_elem.set("Issue", comic.cv_issue_id or "")
+
+        _write_cv_metadata(book_elem, comic)
     
     # Matchers (empty)
     SubElement(root, "Matchers")
@@ -59,6 +78,24 @@ def generate_cbl(reading_list: ReadingList) -> str:
         lines = lines[1:]
     
     return xml_declaration + "\n".join(lines)
+
+
+def _write_cv_metadata(book_elem: Element, comic: Comic) -> None:
+    """Write only the supported ComicVine metadata fields.
+
+    This is deliberately a private, namespaced extension rather than an
+    addition to ComicRack's Book attributes or Database element.
+    """
+    metadata = comic.cv_metadata
+    if metadata is None:
+        return
+    extension = SubElement(book_elem, f"{{{CBL_MAKER_NAMESPACE}}}ComicVineMetadata")
+    extension.set("version", "1")
+    for xml_name, attribute in _CV_METADATA_FIELDS:
+        value = getattr(metadata, attribute, None)
+        if value is not None:
+            field = SubElement(extension, f"{{{CBL_MAKER_NAMESPACE}}}{xml_name}")
+            field.text = str(value)
 
 
 def save_cbl(xml_content: str, output_path: Path) -> None:

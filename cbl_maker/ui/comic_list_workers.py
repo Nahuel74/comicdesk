@@ -1,6 +1,7 @@
 """Background workers for scanning and Comic Vine enrichment."""
 
 from pathlib import Path
+import re
 from PySide6.QtCore import QThread, Signal
 
 from cbl_maker.models import Comic
@@ -94,10 +95,42 @@ class EnrichWorker(QThread):
         self._apply_issue_data(comic, issue)
 
     def _apply_issue_data(self, comic, issue):
-        if not comic.series_name and issue.series_name: comic.series_name = issue.series_name
-        if not comic.volume and issue.volume: comic.volume = issue.volume
-        if not comic.issue_number and issue.issue_number: comic.issue_number = issue.issue_number
-        if not comic.year and issue.cover_date: comic.year = issue.cover_date[:4]
+        """Persist normalized Comic Vine data without replacing user metadata."""
+        comic.cv_metadata = issue
+        if issue.id and not comic.cv_issue_id:
+            comic.cv_issue_id = issue.id
+        if issue.series_id and not comic.cv_series_id:
+            comic.cv_series_id = issue.series_id
+        if not comic.series_name and issue.series_name:
+            comic.series_name = issue.series_name
+        if not comic.volume and issue.volume:
+            comic.volume = issue.volume
+        if not comic.issue_number and issue.issue_number:
+            comic.issue_number = issue.issue_number
+
+        cover_date = (issue.cover_date or "").split("-")
+        date_fields = ("year", "month", "day")
+        for field, value in zip(date_fields, cover_date):
+            if not getattr(comic, field) and value:
+                setattr(comic, field, value)
+
+        if issue.web_url:
+            web_url = self._normalize_issue_url(issue.web_url, comic.cv_issue_id)
+            if web_url and web_url not in comic.web_links:
+                comic.web_links.append(web_url)
+
+    @staticmethod
+    def _normalize_issue_url(web_url, issue_id):
+        """Keep the persisted URL aligned with the comic's canonical issue ID."""
+        if not web_url or not issue_id:
+            return web_url
+        normalized_id = str(issue_id)
+        return re.sub(
+            r"(/4000-)\d+(?=/|$)",
+            lambda match: f"{match.group(1)}{normalized_id}",
+            web_url,
+            count=1,
+        )
 
     def cancel(self):
         self._cancelled = True

@@ -20,6 +20,7 @@ class Comic:
     web_links: list[str] = field(default_factory=list)
     cv_series_id: Optional[str] = None
     cv_issue_id: Optional[str] = None
+    cv_metadata: Optional["ComicVineMetadata"] = None
 
     @property
     def has_cv_ids(self) -> bool:
@@ -47,6 +48,34 @@ class Comic:
         if self.cv_series_id or self.cv_issue_id:
             return "⚠️"
         return "❌"
+
+
+@dataclass(frozen=True)
+class CBLBook:
+    """A book reference read from a ComicRack CBL document.
+
+    A CBL contains references, not files.  Keeping this separate from
+    :class:`Comic` prevents an import from inventing a local path.
+    """
+    series_name: str = ""
+    volume: str = ""
+    issue_number: str = ""
+    cv_series_id: Optional[str] = None
+    cv_issue_id: Optional[str] = None
+    position: int = 0
+    cv_metadata: Optional["ComicVineMetadata"] = None
+
+    def to_comic(self, path: Optional[Path] = None) -> Comic:
+        """Create an importable Comic without contacting Comic Vine."""
+        return Comic(
+            path=path or Path(),
+            series_name=self.series_name,
+            volume=self.volume,
+            issue_number=self.issue_number,
+            cv_series_id=self.cv_series_id,
+            cv_issue_id=self.cv_issue_id,
+            cv_metadata=self.cv_metadata,
+        )
 
 
 @dataclass
@@ -127,3 +156,9 @@ class ComicVineIssue:
     issue_number: str
     cover_date: str
     web_url: str
+
+
+# ``ComicVineIssue`` is the API-facing name retained for compatibility.  The
+# metadata stored on a Comic uses the more general domain name because it can
+# be enriched independently of the legacy ID fields.
+ComicVineMetadata = ComicVineIssue

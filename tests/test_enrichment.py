@@ -112,7 +112,7 @@ class TestEnrichWorker:
 
     @patch("cbl_maker.ui.comic_list.ComicVineClient")
     def test_enrich_fills_missing_metadata(self, mock_client_cls):
-        """Enrichment should fill missing series_name, volume, year."""
+        """Enrichment should persist all missing normalized issue metadata."""
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_client.get_issue.return_value = _mock_issue(
@@ -126,10 +126,15 @@ class TestEnrichWorker:
         assert comic.volume == "3"
         assert comic.issue_number == "5"
         assert comic.year == "2019"
+        assert comic.month == "06"
+        assert comic.day == "15"
+        assert comic.web_links == [
+            "https://comicvine.gamespot.com/test/4000-999/"
+        ]
 
     @patch("cbl_maker.ui.comic_list.ComicVineClient")
     def test_enrich_does_not_overwrite_existing_fields(self, mock_client_cls):
-        """Enrichment should NOT overwrite fields that already have values."""
+        """Enrichment should NOT overwrite manual fields or links."""
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
         mock_client.get_issue.return_value = _mock_issue(
@@ -140,13 +145,43 @@ class TestEnrichWorker:
             cv_issue_id="999",
             series_name="Existing Name",
             volume="1",
-            issue_number="10"
+            issue_number="10",
+            year="2001",
+            month="02",
+            day="03",
+            web_links=["https://example.test/manual"],
         )
         self._run_worker([comic])
 
         assert comic.series_name == "Existing Name"
         assert comic.volume == "1"
         assert comic.issue_number == "10"
+        assert comic.year == "2001"
+        assert comic.month == "02"
+        assert comic.day == "03"
+        assert comic.web_links == [
+            "https://example.test/manual",
+            "https://comicvine.gamespot.com/test/4000-999/",
+        ]
+
+    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    def test_enrich_skips_already_enriched_issue(self, mock_client_cls):
+        """A comic with both Comic Vine IDs must not trigger another lookup."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        comic = _make_comic(
+            cv_issue_id="999",
+            cv_series_id="888",
+            series_name="Persisted Series",
+            year="2019",
+        )
+
+        self._run_worker([comic])
+
+        mock_client.get_issue.assert_not_called()
+        mock_client.search_issue.assert_not_called()
+        assert comic.series_name == "Persisted Series"
+        assert comic.year == "2019"
 
     @patch("cbl_maker.ui.comic_list.ComicVineClient")
     def test_enrich_handles_no_search_results(self, mock_client_cls):

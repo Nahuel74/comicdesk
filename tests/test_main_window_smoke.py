@@ -31,3 +31,17 @@ def test_main_window_builds_offscreen(qapp):
     assert status == "Ready" or status.startswith("Scanning: ")
 
     window.close()
+
+
+def test_main_window_closes_reading_list_workers(qapp, monkeypatch):
+    window = MainWindow()
+    stopped = []
+    monkeypatch.setattr(
+        window.reading_list_panel,
+        "shutdown_workers",
+        lambda: stopped.append(True),
+    )
+
+    window.close()
+
+    assert stopped == [True]

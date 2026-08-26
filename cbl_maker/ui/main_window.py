@@ -79,6 +79,12 @@ class MainWindow(QMainWindow):
         
         # Right panel - reading list
         self.reading_list_panel = ReadingListPanel()
+        self.comic_list.set_reading_list(self.reading_list_panel.reading_list)
+        self.reading_list_panel.list_changed.connect(
+            lambda: self.comic_list.set_reading_list(
+                self.reading_list_panel.reading_list
+            )
+        )
 
         self.folder_panel.setMinimumWidth(180)
         self.comic_list.setMinimumWidth(360)
@@ -108,6 +114,13 @@ class MainWindow(QMainWindow):
         
         # File menu
         file_menu = menubar.addMenu("&File")
+
+        import_action = QAction("&Import CBL", self)
+        import_action.setShortcut("Ctrl+I")
+        import_action.triggered.connect(self.reading_list_panel.import_cbl)
+        file_menu.addAction(import_action)
+
+        self.import_action = import_action
         
         settings_action = QAction("&Settings", self)
         settings_action.setShortcut("Ctrl+,")
@@ -165,4 +178,5 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Stop background work before Qt destroys the workspace children."""
         self.comic_list.shutdown_workers()
+        self.reading_list_panel.shutdown_workers()
         super().closeEvent(event)

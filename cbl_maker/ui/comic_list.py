@@ -61,6 +61,7 @@ class ComicList(QWidget):
     def __init__(self, config=None):
         super().__init__()
         self.comics = []
+        self.reading_list = None
         self._selection = ComicSelection()
         self.config = config
         self.model = ComicTableModel(parent=self)
@@ -174,6 +175,7 @@ class ComicList(QWidget):
             return
         self.comics = comics
         self._set_comics(comics)
+        self.set_reading_list(self.reading_list)
         self.status_label.setText(f"Found {len(comics)} comics")
         self._update_counts()
 
@@ -197,6 +199,7 @@ class ComicList(QWidget):
     def _on_enrich_complete(self, comics: list[Comic], error_occurred: bool):
         enriched = sum(comic.has_cv_ids for comic in comics)
         self._set_comics(comics)
+        self.set_reading_list(self.reading_list)
         self.enrich_btn.setEnabled(True)
         if not error_occurred:
             self.status_label.setText(f"Enriched {enriched}/{len(comics)} comics")
@@ -216,6 +219,13 @@ class ComicList(QWidget):
         self.comics = list(comics)
         self.model.set_comics(self.comics)
         self._restore_selection()
+
+    def set_reading_list(self, reading_list):
+        """Update the reading-list indicator for the current comic rows."""
+        self.reading_list = reading_list
+        self.model.set_reading_list(reading_list)
+
+    update_reading_list = set_reading_list
 
     def _restore_selection(self):
         selection_model = self.table.selectionModel()

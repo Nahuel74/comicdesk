@@ -3,7 +3,8 @@
 import pytest
 from pathlib import Path
 
-from cbl_maker.models import ReadingList, Comic
+from cbl_maker.models import ComicVineIssue, ReadingList, Comic
+from cbl_maker.services.cbl_reader import read_cbl
 from cbl_maker.services.cbl_writer import generate_cbl, save_cbl
 
 
@@ -85,6 +86,52 @@ class TestGenerateCbl:
         xml = generate_cbl(ReadingList(name="Test List", comics=[comic]))
 
         assert "<Database" not in xml
+
+    def test_includes_order_configuration(self, sample_comics):
+        reading_list = ReadingList(
+            name="Ordered List",
+            comics=sample_comics,
+            ordered_by="series_issue",
+            order_direction="desc",
+        )
+
+        xml = generate_cbl(reading_list)
+
+        assert 'orderedby="series_issue"' in xml
+        assert 'orderdirection="desc"' in xml
+
+    def test_order_configuration_round_trips_through_reader(self, sample_comics):
+        reading_list = ReadingList(
+            name="Ordered List",
+            comics=sample_comics,
+            ordered_by="volume",
+            order_direction="desc",
+        )
+
+        document = read_cbl(generate_cbl(reading_list))
+
+        assert document.ordered_by == "volume"
+        assert document.order_direction == "desc"
+
+    def test_preserves_database_and_comicvine_metadata(self):
+        metadata = ComicVineIssue(
+            "20", "10", "Saga", "1", "2", "2020-01-01", "https://example.test/20"
+        )
+        comic = Comic(
+            path=Path("/local/secret/saga.cbz"),
+            series_name="Saga",
+            volume="1",
+            issue_number="2",
+            cv_series_id="10",
+            cv_issue_id="20",
+            cv_metadata=metadata,
+        )
+
+        document = read_cbl(generate_cbl(ReadingList("Saga", [comic])))
+
+        assert document.books[0].cv_series_id == "10"
+        assert document.books[0].cv_issue_id == "20"
+        assert document.books[0].cv_metadata == metadata
 
 
 class TestSaveCbl:

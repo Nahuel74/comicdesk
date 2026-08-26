@@ -10,6 +10,7 @@ class ReadingListHeader(QWidget):
     name_changed = Signal(str)
     clear_requested = Signal()
     export_requested = Signal()
+    import_requested = Signal()
 
     def __init__(self, reading_list, parent=None):
         super().__init__(parent)
@@ -47,6 +48,10 @@ class ReadingListHeader(QWidget):
         self.clear_btn.setToolTip("Remove all comics from the list")
         self.clear_btn.clicked.connect(self.clear_requested)
         layout.addWidget(self.clear_btn)
+        self.import_btn = QPushButton("Import CBL")
+        self.import_btn.setToolTip("Import and update the reading list from a CBL file")
+        self.import_btn.clicked.connect(self.import_requested)
+        layout.addWidget(self.import_btn)
         self.export_btn = QPushButton("Export CBL")
         self.export_btn.setToolTip("Export this reading list")
         self.export_btn.clicked.connect(self.export_requested)
@@ -60,10 +65,12 @@ class ReadingListHeader(QWidget):
             self.name_edit.setText(self._original_name)
             self.name_edit.setFocus()
             return False
+        changed = name != self._original_name
         self.reading_list.name = name
         self._original_name = name
         self.name_edit.setText(name)
-        self.name_changed.emit(name)
+        if changed:
+            self.name_changed.emit(name)
         return True
 
     def cancel_name_edit(self):
@@ -75,3 +82,9 @@ class ReadingListHeader(QWidget):
         self.count_label.setText(f"{count} item{'s' if count != 1 else ''}")
         self.clear_btn.setEnabled(count > 0)
         self.export_btn.setEnabled(count > 0)
+
+    def set_reading_list(self, reading_list):
+        """Point the header at a newly imported list without emitting edits."""
+        self.reading_list = reading_list
+        self._original_name = reading_list.name
+        self.name_edit.setText(reading_list.name)
