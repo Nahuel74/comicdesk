@@ -211,6 +211,7 @@ class ComicVineIssue:
     issue_number: str
     cover_date: str
     web_url: str
+    store_date: str = ""
     name: str = ""
     description: str = ""
     publisher: str = ""

@@ -49,6 +49,7 @@ def _parse_issue_response(result: dict) -> ComicVineIssue:
         volume=str(volume.get("volume_number", "")),
         issue_number=str(result.get("issue_number", "")),
         cover_date=result.get("cover_date", ""),
+        store_date=result.get("store_date") or "",
         web_url=result.get("site_detail_url", ""),
         name=result.get("name") or "",
         description=result.get("description") or "",
@@ -93,7 +94,7 @@ def _names(values) -> list[str]:
             if isinstance(item, dict) and item.get("name")]
 
 
-ISSUE_FIELDS = ("id,volume,issue_number,name,cover_date,site_detail_url,description,"
+ISSUE_FIELDS = ("id,volume,issue_number,name,cover_date,store_date,site_detail_url,description,"
                 "publisher,genres,character_credits,concept_credits,location_credits,"
                 "person_credits,story_arc_credits,team_credits,age_rating")
 VOLUME_FIELDS = ("id,name,start_year,count_of_issues,site_detail_url,description,"

@@ -126,7 +126,7 @@ def apply_issue_to_comic(
         comic.issue_number = issue.issue_number
     if issue.name and (overwrite or not comic.title):
         comic.title = issue.name
-    cover_date = (issue.cover_date or "").split("-")
+    cover_date = (issue.store_date or issue.cover_date or "").split("-")
     for field_name, value in zip(("year", "month", "day"), cover_date):
         if value and (overwrite or not getattr(comic, field_name)):
             setattr(comic, field_name, value)

@@ -15,11 +15,12 @@ from cbl_maker.services.identification import (
 
 
 def issue(issue_id, series_id="20", series_name="Saga", volume="1", number="3",
-          name=""):
+          name="", store_date=""):
     return ComicVineIssue(
         id=str(issue_id), series_id=str(series_id), series_name=series_name,
         volume=volume, issue_number=number, cover_date="2020-03-04",
         web_url=f"https://comicvine.test/4000-{issue_id}/", name=name,
+        store_date=store_date,
     )
 
 
@@ -247,3 +248,41 @@ def test_apply_strips_html_from_description():
     assert comic.summary == "A bold description with & entities."
     assert "<p>" not in comic.summary
     assert "<b>" not in comic.summary
+
+
+def test_apply_uses_store_date_over_cover_date():
+    comic = Comic(Path("local.cbz"))
+    remote = issue("80", series_id="81", series_name="Remote", number="1",
+                   store_date="2025-11-12")
+
+    apply_issue_to_comic(comic, remote, overwrite=True)
+
+    assert comic.year == "2025"
+    assert comic.month == "11"
+    assert comic.day == "12"
+
+
+def test_apply_falls_back_to_cover_date_when_store_date_empty():
+    comic = Comic(Path("local.cbz"))
+    remote = issue("80", series_id="81", series_name="Remote", number="1")
+
+    apply_issue_to_comic(comic, remote, overwrite=True)
+
+    assert comic.year == "2020"
+    assert comic.month == "03"
+    assert comic.day == "04"
+
+
+def test_apply_falls_back_to_cover_date_when_store_date_none():
+    comic = Comic(Path("local.cbz"))
+    remote = ComicVineIssue(
+        id="80", series_id="81", series_name="Remote",
+        volume="1", issue_number="1", cover_date="2020-03-04",
+        web_url="https://comicvine.test/4000-80/", store_date="",
+    )
+
+    apply_issue_to_comic(comic, remote, overwrite=True)
+
+    assert comic.year == "2020"
+    assert comic.month == "03"
+    assert comic.day == "04"

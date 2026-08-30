@@ -65,6 +65,48 @@ class TestComicVineClient:
         client._rate_limit()  # Should not block
 
     @patch("cbl_maker.services.comicvine_api.httpx.Client")
+    def test_get_issue_parses_store_date(self, mock_client_cls, client):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "status_code": 1,
+            "results": {
+                "id": 1143298,
+                "volume": {"id": 162531, "name": "Red Hulk"},
+                "issue_number": "10",
+                "cover_date": "2026-01-01",
+                "store_date": "2025-11-12",
+                "site_detail_url": "https://comicvine.gamespot.com/red-hulk-10-red-flag/4000-1143298/"
+            }
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = mock_response
+
+        issue = client.get_issue("1143298")
+
+        assert issue.cover_date == "2026-01-01"
+        assert issue.store_date == "2025-11-12"
+
+    @patch("cbl_maker.services.comicvine_api.httpx.Client")
+    def test_get_issue_store_date_defaults_to_empty(self, mock_client_cls, client):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "status_code": 1,
+            "results": {
+                "id": 100,
+                "volume": {"id": 200, "name": "Test"},
+                "issue_number": "1",
+                "cover_date": "2020-01-01",
+                "site_detail_url": "https://comicvine.test/4000-100/"
+            }
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = mock_response
+
+        issue = client.get_issue("100")
+
+        assert issue.store_date == ""
+
+    @patch("cbl_maker.services.comicvine_api.httpx.Client")
     def test_invalid_json_is_reported_as_api_error(self, mock_client_cls, client):
         from cbl_maker.services.comicvine_api import ComicVineError
 

@@ -26,7 +26,8 @@ def _make_comic(**kwargs) -> Comic:
 
 
 def _mock_issue(issue_id="100", series_id="200", series_name="Test Series",
-                volume="1", issue_number="1", cover_date="2020-01-01"):
+                volume="1", issue_number="1", cover_date="2020-01-01",
+                store_date=""):
     """Create a mock ComicVineIssue."""
     return ComicVineIssue(
         id=issue_id,
@@ -35,6 +36,7 @@ def _mock_issue(issue_id="100", series_id="200", series_name="Test Series",
         volume=volume,
         issue_number=issue_number,
         cover_date=cover_date,
+        store_date=store_date,
         web_url=f"https://comicvine.gamespot.com/test/4000-{issue_id}/"
     )
 
@@ -289,3 +291,38 @@ class TestEnrichWorker:
 
         mock_client.search_issue.assert_not_called()
         mock_client.get_issue.assert_not_called()
+
+    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    def test_enrich_uses_store_date_for_date_fields(self, mock_client_cls):
+        """Enrichment should use store_date when available instead of cover_date."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.get_issue.return_value = _mock_issue(
+            issue_id="500", series_id="600", series_name="Red Hulk",
+            volume="2025", issue_number="10",
+            cover_date="2026-01-01", store_date="2025-11-12"
+        )
+
+        comic = _make_comic(cv_issue_id="500")
+        self._run_worker([comic])
+
+        assert comic.year == "2025"
+        assert comic.month == "11"
+        assert comic.day == "12"
+
+    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    def test_enrich_falls_back_to_cover_date_when_store_date_empty(self, mock_client_cls):
+        """Enrichment should use cover_date when store_date is empty."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        mock_client.get_issue.return_value = _mock_issue(
+            issue_id="501", series_id="601", series_name="Test",
+            cover_date="2020-06-15", store_date=""
+        )
+
+        comic = _make_comic(cv_issue_id="501")
+        self._run_worker([comic])
+
+        assert comic.year == "2020"
+        assert comic.month == "06"
+        assert comic.day == "15"
