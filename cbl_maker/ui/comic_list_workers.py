@@ -102,8 +102,13 @@ class EnrichWorker(QThread):
             return
         results = client.search_issue(f"{comic.series_name} #{comic.issue_number}")
         if results:
-            issue = results[0]; comic.cv_issue_id = issue.id
-            if issue.series_id: comic.cv_series_id = issue.series_id
+            partial = results[0]
+            comic.cv_issue_id = partial.id
+            if partial.series_id: comic.cv_series_id = partial.series_id
+            try:
+                issue = client.get_issue(partial.id)
+            except Exception:
+                issue = partial
             self._apply_issue_data(comic, issue)
 
     def _fetch_and_apply_issue(self, comic, client, issue_id):

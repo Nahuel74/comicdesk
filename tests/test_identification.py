@@ -69,7 +69,7 @@ def test_series_id_and_number_use_scoped_issue_lookup():
 
     assert result.status == STATUS_EXACT
     assert result.issue is found
-    assert client.calls == [("list_issues", "55", "3")]
+    assert client.calls[0] == ("list_issues", "55", "3")
 
 
 def test_ambiguous_scoped_results_are_candidates_not_first_result():
@@ -95,7 +95,7 @@ def test_series_volume_and_number_disambiguate_search_results():
 
     assert result.status == STATUS_EXACT
     assert result.issue is found
-    assert client.calls == [("search_issue", "saga #03")]
+    assert client.calls[0] == ("search_issue", "saga #03")
 
 
 def test_search_can_use_series_and_title_when_number_is_missing():
@@ -106,7 +106,7 @@ def test_search_can_use_series_and_title_when_number_is_missing():
     result = identify_comic(comic, client)
 
     assert result.status == STATUS_EXACT
-    assert client.calls == [("search_issue", "Batman Year One")]
+    assert client.calls[0] == ("search_issue", "Batman Year One")
 
 
 def test_filename_is_used_when_local_metadata_is_empty():
@@ -118,7 +118,7 @@ def test_filename_is_used_when_local_metadata_is_empty():
 
     assert result.status == STATUS_EXACT
     assert result.issue is found
-    assert client.calls == [("search_issue", "Saga #3")]
+    assert client.calls[0] == ("search_issue", "Saga #3")
     assert comic.series_name == ""
 
 
@@ -161,6 +161,42 @@ def test_api_failure_still_allows_filename_fallback():
     assert result.issue is found
 
 
+def test_search_exact_match_is_hydrated_by_id():
+    partial = issue("42", series_name="Saga", number="3")
+    hydrated = issue("42", series_name="Saga", number="3", name="Full Title")
+    hydrated.description = "Complete description"
+
+    class HydratingClient(Client):
+        def get_issue(self, issue_id):
+            self.calls.append(("get_issue", issue_id))
+            return hydrated
+
+    comic = Comic(Path("local.cbz"), series_name="Saga", issue_number="3")
+    client = HydratingClient(searched=[partial])
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue is hydrated
+    assert result.issue.name == "Full Title"
+    assert result.issue.description == "Complete description"
+    assert ("get_issue", "42") in client.calls
+
+
+def test_search_exact_match_falls_back_when_hydration_fails():
+    partial = issue("42", series_name="Saga", number="3")
+
+    class FailingHydrateClient(Client):
+        def get_issue(self, issue_id):
+            self.calls.append(("get_issue", issue_id))
+            raise RuntimeError("network down")
+
+    comic = Comic(Path("local.cbz"), series_name="Saga", issue_number="3")
+    result = identify_comic(comic, FailingHydrateClient(searched=[partial]))
+
+    assert result.status == STATUS_EXACT
+    assert result.issue is partial
+
+
 def test_apply_preserves_manual_values_and_keeps_remote_proposal():
     comic = Comic(
         Path("local.cbz"), title="Manual title", series_name="Manual series",
@@ -199,3 +235,15 @@ def test_apply_fills_missing_fields_and_overwrite_is_explicit():
     assert (comic.series_name, comic.volume, comic.issue_number) == (
         "Remote", "3", "2"
     )
+
+
+def test_apply_strips_html_from_description():
+    comic = Comic(Path("local.cbz"))
+    remote = issue("70", series_id="71", series_name="Remote")
+    remote.description = "<p>A <b>bold</b> description with &amp; entities.</p>"
+
+    apply_issue_to_comic(comic, remote, overwrite=True)
+
+    assert comic.summary == "A bold description with & entities."
+    assert "<p>" not in comic.summary
+    assert "<b>" not in comic.summary

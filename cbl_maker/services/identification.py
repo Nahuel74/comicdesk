@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import html
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -44,6 +45,9 @@ def identify_comic(comic: Comic, client) -> IdentificationResult:
         listed = client.list_issues(comic.cv_series_id, issue_number)
         exact = _unique_issue_match(listed, comic.series_name, issue_number)
         if exact:
+            hydrated = _hydrate_exact_issue(client, exact)
+            if hydrated is not None:
+                exact = hydrated
             return IdentificationResult(STATUS_EXACT, issue=exact, issues=[exact])
         if listed:
             return IdentificationResult(STATUS_CANDIDATES, issues=listed)
@@ -83,6 +87,12 @@ def identify_comic(comic: Comic, client) -> IdentificationResult:
         except Exception:
             continue
         result = _from_issue_search(searched, query_series, query_issue)
+        if result.status == STATUS_EXACT and result.issue is not None:
+            hydrated = _hydrate_exact_issue(client, result.issue)
+            if hydrated is not None:
+                result = IdentificationResult(
+                    STATUS_EXACT, issue=hydrated, issues=[hydrated]
+                )
         if result.status != STATUS_EMPTY:
             return result
 
@@ -142,7 +152,7 @@ def apply_volume_to_comic(
 
 def _apply_issue_rich_fields(comic, issue, overwrite):
     values = {
-        "summary": issue.description, "publisher": issue.publisher,
+        "summary": _strip_html(issue.description), "publisher": issue.publisher,
         "genre": ", ".join(issue.genres), "characters": ", ".join(issue.character_credits),
         "locations": ", ".join(issue.location_credits), "teams": ", ".join(issue.team_credits),
         "story_arc": ", ".join(issue.story_arc_credits), "age_rating": issue.age_rating,
@@ -226,3 +236,27 @@ def _norm_issue(value: str) -> str:
         whole, frac = match.groups()
         return f"{int(whole)}.{frac}" if int(frac) else str(int(whole))
     return text
+
+
+def _hydrate_exact_issue(client, issue: ComicVineIssue):
+    """Fetch complete issue details by ID for a search result.
+
+    Search results from the Comic Vine API return partial payloads without
+    credits, descriptions or accurate volume metadata.  This helper replaces
+    the partial object with a fully hydrated one when possible.
+    """
+    if not getattr(issue, "id", None):
+        return None
+    try:
+        return client.get_issue(issue.id)
+    except Exception:
+        return None
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags and decode entities from Comic Vine descriptions."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"<[^>]+>", " ", text)
+    cleaned = html.unescape(cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()

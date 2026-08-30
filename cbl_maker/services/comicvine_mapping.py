@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import html
+import re
+
 from cbl_maker.models import Comic, ComicVineIssue, ComicVineVolume
 
 
@@ -43,7 +46,7 @@ def apply_issue_metadata(comic: Comic, issue: ComicVineIssue, *, overwrite=False
 
     apply_issue_to_comic(comic, issue, overwrite=overwrite)
     values = {
-        "summary": issue.description,
+        "summary": _strip_html(issue.description),
         "publisher": issue.publisher,
         "genre": ", ".join(issue.genres),
         "characters": ", ".join(issue.character_credits),
@@ -86,3 +89,12 @@ def _fill_fields(comic, values, overwrite):
 def _set_field(comic, field, value, overwrite):
     if overwrite or not getattr(comic, field, ""):
         setattr(comic, field, value)
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags and decode entities from Comic Vine descriptions."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"<[^>]+>", " ", text)
+    cleaned = html.unescape(cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()

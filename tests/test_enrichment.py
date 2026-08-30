@@ -240,6 +240,45 @@ class TestEnrichWorker:
         assert call_count < 10
 
     @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    def test_enrich_search_hydrates_before_applying(self, mock_client_cls):
+        """Search results must be hydrated via get_issue before applying."""
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        partial = _mock_issue(issue_id="500", series_id="600", series_name="Batman")
+        hydrated = _mock_issue(
+            issue_id="500", series_id="600", series_name="Batman",
+            volume="2016", issue_number="1", cover_date="2016-03-01",
+        )
+        hydrated.description = "Complete issue description"
+        mock_client.search_issue.return_value = [partial]
+        mock_client.get_issue.return_value = hydrated
+
+        comic = _make_comic(series_name="Batman", issue_number="1")
+        self._run_worker([comic])
+
+        mock_client.search_issue.assert_called_once_with("Batman #1")
+        mock_client.get_issue.assert_called_once_with("500")
+        assert comic.cv_issue_id == "500"
+        assert comic.cv_series_id == "600"
+
+    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    def test_enrich_search_falls_back_to_partial_on_hydration_failure(self, mock_client_cls):
+        """If hydration fails, the partial search result should still be applied."""
+        from cbl_maker.services.comicvine_api import ComicVineError
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+        partial = _mock_issue(issue_id="500", series_id="600", series_name="Batman")
+        mock_client.search_issue.return_value = [partial]
+        mock_client.get_issue.side_effect = ComicVineError("API down")
+
+        comic = _make_comic(series_name="Batman", issue_number="1")
+        self._run_worker([comic])
+
+        assert comic.cv_issue_id == "500"
+        assert comic.cv_series_id == "600"
+
+    @patch("cbl_maker.ui.comic_list.ComicVineClient")
     def test_enrich_search_no_series_name_skips(self, mock_client_cls):
         """Comic with no series_name and no IDs should be skipped (no search possible)."""
         mock_client = MagicMock()

@@ -102,13 +102,52 @@ class MetadataWriteWorker(QThread):
         self._cancelled = True
 
 
+class MetadataHydrateWorker(QThread):
+    """Fetch complete Comic Vine details for a selected candidate."""
+
+    finished = Signal(object)
+    error = Signal(str)
+
+    def __init__(self, candidate, api_key: str, cache_enabled: bool = True,
+                 token: int = 0):
+        super().__init__()
+        self.candidate = deepcopy(candidate)
+        self.api_key = str(api_key or "").strip()
+        self.cache_enabled = bool(cache_enabled)
+        self.token = token
+        self._cancelled = False
+
+    def run(self):
+        if self._cancelled:
+            return
+        if not self.api_key:
+            self.error.emit("Comic Vine API key is empty")
+            return
+        try:
+            client = ComicVineClient(self.api_key, cache_enabled=self.cache_enabled)
+            hydrated = client.get_issue(self.candidate.id)
+            if not self._cancelled:
+                self.finished.emit(hydrated)
+        except Exception as exc:
+            logger.exception("metadata_hydrate_failed error_type=%s", type(exc).__name__)
+            if not self._cancelled:
+                self.error.emit(_api_error_message(exc))
+
+    def cancel(self):
+        self._cancelled = True
+
+
 # Short names make the module convenient to integrate without hiding the
 # descriptive public classes above.
 SearchWorker = MetadataSearchWorker
 WriteWorker = MetadataWriteWorker
+HydrateWorker = MetadataHydrateWorker
 SearchMetadataWorker = MetadataSearchWorker
 WriteMetadataWorker = MetadataWriteWorker
+HydrateMetadataWorker = MetadataHydrateWorker
 ComicMetadataSearchWorker = MetadataSearchWorker
 ComicMetadataWriteWorker = MetadataWriteWorker
+ComicMetadataHydrateWorker = MetadataHydrateWorker
 CBZMetadataSearchWorker = MetadataSearchWorker
 CBZMetadataWriteWorker = MetadataWriteWorker
+CBZMetadataHydrateWorker = MetadataHydrateWorker

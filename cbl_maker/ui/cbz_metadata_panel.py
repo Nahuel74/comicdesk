@@ -10,10 +10,11 @@ from cbl_maker.models import ComicVineVolume
 from cbl_maker.services.comicinfo import FIELD_TAGS, join_web_links
 from cbl_maker.services.identification import STATUS_CANDIDATES, STATUS_EMPTY
 from cbl_maker.services.metadata_session import MetadataSession
-from cbl_maker.ui.cbz_metadata_workers import MetadataSearchWorker, MetadataWriteWorker
+from cbl_maker.ui.cbz_metadata_workers import MetadataSearchWorker, MetadataHydrateWorker, MetadataWriteWorker
 from cbl_maker.ui.theme import COLORS, SPACING
 MULTILINE_FIELDS = {"summary", "notes", "review"}
 ID_FIELDS = (("Series ID", "cv_series_id"), ("Issue ID", "cv_issue_id"))
+CHANGED_PROPERTY = "metadataChanged"
 logger = logging.getLogger(__name__)
 
 
@@ -35,10 +36,12 @@ class CbzMetadataPanel(QWidget):
         self.config = config
         self.comic = None
         self._proposal = None
-        self._search_worker = self._write_worker = None
+        self._search_worker = self._hydrate_worker = self._write_worker = None
         self._request_token, self._path_key, self._loading = 0, "", False
         self._pending_comic = None; self._has_pending_comic = False
         self._write_session = None; self._write_completion = None
+        self._changed_fields: set[str] = set()
+        self._pre_apply_values: dict[str, object] = {}
         self._build_ui()
         if comic is not None:
             self.set_comic(comic)
@@ -92,11 +95,10 @@ class CbzMetadataPanel(QWidget):
         editor_layout.addWidget(self.status_label)
         actions = QHBoxLayout()
         self.search_button = self._button("Search", self.search); self.search_btn = self.search_button
-        self.apply_button = self._button("Apply proposal", self.apply_proposal); self.apply_btn = self.apply_button
-        self.refresh_button = self._button("Update", self.update); self.update_button = self.refresh_button
+        self.apply_button = self._button("Apply", self.apply_proposal); self.apply_btn = self.apply_button
         self.discard_button = self._button("Discard", self.discard); self.discard_btn = self.discard_button
         self.save_button = self._button("Save", self.save); self.save_btn = self.save_button
-        for button in (self.search_button, self.apply_button, self.refresh_button,
+        for button in (self.search_button, self.apply_button,
                        self.discard_button, self.save_button):
             actions.addWidget(button)
         editor_layout.addLayout(actions)
@@ -109,7 +111,9 @@ class CbzMetadataPanel(QWidget):
             f"QWidget#cbzMetadataPanel {{ background: {COLORS['canvas']}; color: {COLORS['text']}; }}"
             f" QLineEdit, QTextEdit, QListWidget {{ background: {COLORS['surface']}; color: {COLORS['text']};"
             f" border: 1px solid {COLORS['border']}; border-radius: 4px; padding: 4px; }}"
-             f" QListWidget::item:selected {{ background: {COLORS['selection']}; }}")
+             f" QListWidget::item:selected {{ background: {COLORS['selection']}; }}"
+             f" QLineEdit[{CHANGED_PROPERTY}='true'] {{ border: 2px solid {COLORS['accent']}; background: #1a3a5c; }}"
+             f" QTextEdit[{CHANGED_PROPERTY}='true'] {{ border: 2px solid {COLORS['accent']}; background: #1a3a5c; }}")
     def _add_input(self, label, name):
         if name in MULTILINE_FIELDS:
             widget = QTextEdit(); widget.setMaximumHeight(90)
@@ -204,13 +208,38 @@ class CbzMetadataPanel(QWidget):
         self.shutdown_workers(); self._request_token += 1
         self.comic = comic; self.session = MetadataSession(comic) if comic is not None else None
         self._path_key = self._comic_path_key(comic); self._proposal = None
+        self._changed_fields.clear(); self._pre_apply_values.clear()
         self._sync_selector()
         self._populate_form(); self._clear_candidates()
+        self._clear_changed_highlights()
         self._set_status("Ready" if comic is not None else "No comic selected")
         self._set_action_state(); self._emit_dirty()
-        # Loading/focusing a comic must remain local and cheap. Comic Vine is
-        # queried only when the user explicitly presses Search or Update.
     set_current_comic = set_comic
+
+    def _compute_changed_fields(self):
+        """Determine which fields changed after applying a proposal."""
+        current = self.session.values()
+        self._changed_fields = {
+            name for name in current
+            if name in self._pre_apply_values and current[name] != self._pre_apply_values.get(name)
+        }
+
+    def _apply_changed_highlights(self):
+        """Add visual highlighting to fields that changed during the last apply."""
+        for name, widget in self.inputs.items():
+            changed = name in self._changed_fields
+            widget.setProperty(CHANGED_PROPERTY, changed)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+
+    def _clear_changed_highlights(self):
+        """Remove all changed-field highlights."""
+        self._changed_fields.clear()
+        for widget in self.inputs.values():
+            widget.setProperty(CHANGED_PROPERTY, False)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+
     @property
     def is_dirty(self): return bool(self.session and self.session.is_dirty)
 
@@ -248,23 +277,21 @@ class CbzMetadataPanel(QWidget):
             self._last_dirty = dirty; self.dirty_changed.emit(dirty)
     def _set_action_state(self):
         has_comic = self.session is not None
-        busy = self._search_worker is not None or self._write_worker is not None
+        busy = self._search_worker is not None or self._hydrate_worker is not None or self._write_worker is not None
         for widget in self.inputs.values(): widget.setEnabled(self._write_worker is None)
-        self.search_button.setEnabled(has_comic and not busy); self.refresh_button.setEnabled(has_comic and not busy)
+        self.search_button.setEnabled(has_comic and not busy)
         self.apply_button.setEnabled(self._proposal is not None and not busy)
         dirty = bool(self.session and self.session.is_dirty)
         self.discard_button.setEnabled(has_comic and dirty and not busy); self.save_button.setEnabled(has_comic and dirty and not busy)
-    def search(self): self._start_search(False)
+    def search(self): self._start_search()
     search_comic = search
-    def update(self): self._start_search(True)
-    refresh = update
-    def _start_search(self, force_refresh):
-        if not self.session or self._search_worker is not None or self._write_worker is not None: return
+    def _start_search(self):
+        if not self.session or self._search_worker is not None or self._hydrate_worker is not None or self._write_worker is not None: return
         key = str(getattr(self.config, "api_key", "") or "").strip()
         if not key: self._set_status("Comic Vine API key is empty"); return
         self._request_token += 1; token, path = self._request_token, self._path_key
         self._proposal = None; self._clear_candidates()
-        self._search_worker = MetadataSearchWorker(self.session.snapshot(), key, cache_enabled=bool(getattr(self.config, "cache_enabled", True)), token=token, force_refresh=force_refresh)
+        self._search_worker = MetadataSearchWorker(self.session.snapshot(), key, cache_enabled=bool(getattr(self.config, "cache_enabled", True)), token=token)
         worker = self._search_worker
         worker.finished.connect(lambda result, w=worker, t=token, p=path: self._search_finished(result, w, t, p))
         worker.error.connect(lambda message, w=worker, t=token, p=path: self._search_error(message, w, t, p))
@@ -300,7 +327,10 @@ class CbzMetadataPanel(QWidget):
     def _candidate_selected(self):
         item = self.candidates_list.currentItem()
         candidate = item.data(Qt.ItemDataRole.UserRole) if item else None
-        self._proposal = candidate if self._is_proposal(candidate) else None; self._set_action_state()
+        self._proposal = candidate if self._is_proposal(candidate) else None
+        self._set_action_state()
+        if self._proposal is not None and self._is_issue(self._proposal):
+            self._hydrate_candidate(self._proposal)
     @staticmethod
     def _is_issue(candidate):
         return candidate is not None and hasattr(candidate, "issue_number") and hasattr(candidate, "series_id")
@@ -308,17 +338,61 @@ class CbzMetadataPanel(QWidget):
     @staticmethod
     def _is_proposal(candidate):
         return CbzMetadataPanel._is_issue(candidate) or isinstance(candidate, ComicVineVolume)
+
+    def _hydrate_candidate(self, candidate):
+        """Fetch complete Comic Vine details for a selected candidate."""
+        if self._hydrate_worker is not None:
+            self._hydrate_worker.cancel()
+        key = str(getattr(self.config, "api_key", "") or "").strip()
+        if not key or not getattr(candidate, "id", None):
+            return
+        self._request_token += 1
+        token, path = self._request_token, self._path_key
+        self._hydrate_worker = MetadataHydrateWorker(
+            candidate, key,
+            cache_enabled=bool(getattr(self.config, "cache_enabled", True)),
+            token=token,
+        )
+        worker = self._hydrate_worker
+        worker.finished.connect(lambda hydrated, w=worker, t=token, p=path: self._hydrate_finished(hydrated, w, t, p))
+        worker.error.connect(lambda msg, w=worker, t=token, p=path: self._hydrate_error(msg, w, t, p))
+        self._set_status("Loading complete Comic Vine metadata…")
+        self._set_action_state()
+        worker.start()
+
+    def _hydrate_finished(self, hydrated, worker, token, path):
+        if worker is not self._hydrate_worker or token != self._request_token or path != self._path_key:
+            return
+        self._hydrate_worker = None
+        worker.deleteLater()
+        self._proposal = hydrated
+        self._set_status("Complete metadata loaded; apply it to the draft")
+        self._set_action_state()
+
+    def _hydrate_error(self, message, worker, token, path):
+        if worker is not self._hydrate_worker or token != self._request_token or path != self._path_key:
+            return
+        self._hydrate_worker = None
+        worker.deleteLater()
+        self._set_status(f"Hydration failed: {message}")
+        self._set_action_state()
     def apply_proposal(self):
         if not self.session or self._proposal is None or self._write_worker is not None: return
-        self.session.apply_proposal(self._proposal); self._populate_form()
+        self._pre_apply_values = self.session.values()
+        self.session.apply_proposal(self._proposal, overwrite=True)
+        self._populate_form()
+        self._compute_changed_fields()
+        self._apply_changed_highlights()
         logger.info("metadata_proposal_applied comic_path=%s volume=%s series_id=%s dirty=%s",
                     self._path_key, self.session.draft.volume,
                     self.session.draft.cv_series_id, self.session.is_dirty)
-        self._set_status("Proposal applied to draft; save to persist it"); self._emit_dirty(); self._set_action_state()
+        self._set_status("Proposal applied to draft; save to persist it")
+        self._emit_dirty(); self._set_action_state()
     apply_selected_proposal = apply_proposal
     def discard(self):
         if not self.session or self._write_worker is not None: return
         self.session.discard(); self._proposal = None; self._populate_form(); self._clear_candidates()
+        self._clear_changed_highlights()
         self._set_status("Draft discarded"); self._emit_dirty(); self._set_action_state()
     discard_changes = discard
     def save(self):
@@ -349,7 +423,9 @@ class CbzMetadataPanel(QWidget):
         worker.deleteLater()
         saved_comic = session.mark_saved() if session is not None else self.comic
         if session is self.session:
-            self._populate_form(); self._set_status(f"Metadata saved to {saved}"); self._emit_dirty(); self._set_action_state(); self.metadata_saved.emit(saved_comic)
+            self._populate_form()
+            self._clear_changed_highlights()
+            self._set_status(f"Metadata saved to {saved}"); self._emit_dirty(); self._set_action_state(); self.metadata_saved.emit(saved_comic)
         if self._has_pending_comic:
             pending = self._pending_comic; self._pending_comic = None; self._has_pending_comic = False
             self._activate_comic(pending)
@@ -371,6 +447,10 @@ class CbzMetadataPanel(QWidget):
         if search is not None:
             search.cancel(); search.isRunning() and search.wait()
             search.deleteLater(); self._search_worker = None
+        hydrate = self._hydrate_worker
+        if hydrate is not None:
+            hydrate.cancel(); hydrate.isRunning() and hydrate.wait()
+            hydrate.deleteLater(); self._hydrate_worker = None
         self._wait_for_write()
         self._request_token += 1
         self._set_action_state()
