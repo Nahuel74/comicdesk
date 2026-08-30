@@ -63,3 +63,15 @@ class TestComicVineClient:
         # Should not sleep if enough time has passed
         client._last_request_time = time.time() - 2
         client._rate_limit()  # Should not block
+
+    @patch("cbl_maker.services.comicvine_api.httpx.Client")
+    def test_invalid_json_is_reported_as_api_error(self, mock_client_cls, client):
+        from cbl_maker.services.comicvine_api import ComicVineError
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.side_effect = ValueError("not json")
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = mock_response
+
+        with pytest.raises(ComicVineError, match="invalid JSON"):
+            client.search_issue("Batman #1")

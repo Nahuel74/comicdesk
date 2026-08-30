@@ -24,12 +24,29 @@ def test_main_window_builds_offscreen(qapp):
     assert window.folder_panel is window.splitter.widget(0)
     assert window.comic_list is window.splitter.widget(1)
     assert window.reading_list_panel is window.splitter.widget(2)
+    assert window.tabs.count() == 2
+    assert window.tabs.tabText(1) == "Metadata"
+    assert window.metadata_panel is window.tabs.widget(1)
     assert window.menuBar().actions()
     # A configured existing default folder starts scanning during construction;
     # that status is real feedback and must not be suppressed for the smoke test.
     status = window.statusbar.currentMessage()
     assert status == "Ready" or status.startswith("Scanning: ")
 
+    window.close()
+
+
+def test_main_window_focuses_comic_in_metadata_tab(qapp):
+    window = MainWindow()
+    from pathlib import Path
+    from cbl_maker.models import Comic
+
+    comic = Comic(Path("book.cbz"), title="Book")
+    window._on_comic_focused(comic)
+
+    assert window.metadata_panel.comic is comic
+    window._open_metadata_tab(comic)
+    assert window.tabs.currentWidget() is window.metadata_panel
     window.close()
 
 

@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -21,6 +21,42 @@ class Comic:
     cv_series_id: Optional[str] = None
     cv_issue_id: Optional[str] = None
     cv_metadata: Optional["ComicVineMetadata"] = None
+    alternate_series: str = ""
+    alternate_number: str = ""
+    alternate_count: str = ""
+    count: str = ""
+    story_arc: str = ""
+    story_arc_number: str = ""
+    summary: str = ""
+    notes: str = ""
+    writer: str = ""
+    penciller: str = ""
+    inker: str = ""
+    colorist: str = ""
+    letterer: str = ""
+    cover_artist: str = ""
+    editor: str = ""
+    translator: str = ""
+    publisher: str = ""
+    imprint: str = ""
+    genre: str = ""
+    tags: str = ""
+    page_count: str = ""
+    language_iso: str = ""
+    format: str = ""
+    black_and_white: str = ""
+    manga: str = ""
+    characters: str = ""
+    teams: str = ""
+    locations: str = ""
+    scan_information: str = ""
+    age_rating: str = ""
+    community_rating: str = ""
+    main_character_or_team: str = ""
+    review: str = ""
+    series_group: str = ""
+    gtin: str = ""
+    comicinfo_unknown: list[Any] = field(default_factory=list)
 
     @property
     def has_cv_ids(self) -> bool:
@@ -147,6 +183,25 @@ class ReadingList:
 
 
 @dataclass
+class ComicVineVolume:
+    """Volume/series data from Comic Vine API."""
+    id: str
+    name: str
+    start_year: str = ""
+    web_url: str = ""
+    count_of_issues: str = ""
+    description: str = ""
+    publisher: str = ""
+    genres: list[str] = field(default_factory=list)
+    character_credits: list[str] = field(default_factory=list)
+    concept_credits: list[str] = field(default_factory=list)
+    location_credits: list[str] = field(default_factory=list)
+    person_credits: list[dict[str, str]] = field(default_factory=list)
+    team_credits: list[str] = field(default_factory=list)
+    age_rating: str = ""
+
+
+@dataclass
 class ComicVineIssue:
     """Issue data from Comic Vine API."""
     id: str
@@ -156,6 +211,19 @@ class ComicVineIssue:
     issue_number: str
     cover_date: str
     web_url: str
+    name: str = ""
+    description: str = ""
+    publisher: str = ""
+    genres: list[str] = field(default_factory=list)
+    character_credits: list[str] = field(default_factory=list)
+    concept_credits: list[str] = field(default_factory=list)
+    location_credits: list[str] = field(default_factory=list)
+    person_credits: list[dict[str, str]] = field(default_factory=list)
+    story_arc_credits: list[str] = field(default_factory=list)
+    team_credits: list[str] = field(default_factory=list)
+    age_rating: str = ""
+    volume_start_year: str = ""
+    volume_count_of_issues: str = ""
 
 
 # ``ComicVineIssue`` is the API-facing name retained for compatibility.  The

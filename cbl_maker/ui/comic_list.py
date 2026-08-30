@@ -6,7 +6,7 @@ from PySide6.QtCore import QItemSelection, QItemSelectionModel, Signal, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView, QHeaderView, QLabel, QMenu, QPushButton, QTableView,
-    QHBoxLayout,
+    QHBoxLayout, QMessageBox,
     QVBoxLayout, QWidget,
 )
 
@@ -57,6 +57,9 @@ class ComicList(QWidget):
     """Panel displaying scanned comics without mutating the source list on filter."""
 
     comics_selected = Signal(list)
+    comic_focused = Signal(object)
+    comic_edit_requested = Signal(object)
+    comics_changed = Signal(list)
 
     def __init__(self, config=None):
         super().__init__()
@@ -71,6 +74,8 @@ class ComicList(QWidget):
         self.toolbar.query_changed.connect(self.table.proxy_model.set_query)
         self.toolbar.status_changed.connect(self.table.proxy_model.set_status)
         self.table.selectionModel().selectionChanged.connect(self._update_counts)
+        self.table.selectionModel().currentChanged.connect(lambda *_: self._emit_focus())
+        self.table.doubleClicked.connect(self._request_edit)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -84,7 +89,7 @@ class ComicList(QWidget):
         title.setStyleSheet("color: #e0e0e0; font-size: 14px; font-weight: bold;")
         header_layout.addWidget(title)
         header_layout.addStretch()
-        self.enrich_btn = QPushButton("Enrich from Comic Vine")
+        self.enrich_btn = QPushButton("Update all metadata from Comic Vine")
         self.enrich_btn.setStyleSheet("""QPushButton { background: #0e639c; color: white; border: none;
             padding: 6px 12px; border-radius: 4px; } QPushButton:hover { background: #1177bb; }
             QPushButton:disabled { background: #3d3d3d; color: #6d6d6d; }""")
@@ -123,6 +128,7 @@ class ComicList(QWidget):
         self._scan_progress_handler = lambda name: self._on_scan_progress(name, worker)
         worker.finished.connect(self._scan_finished_handler)
         worker.progress.connect(self._scan_progress_handler)
+        worker.error.connect(lambda message, w=worker: self._on_scan_error(message, w))
         worker.start()
 
     def _stop_scan_worker(self):
@@ -179,16 +185,27 @@ class ComicList(QWidget):
         self.status_label.setText(f"Found {len(comics)} comics")
         self._update_counts()
 
+    def _on_scan_error(self, message, worker):
+        if worker is self.worker:
+            self.status_label.setText(message)
+
     def _on_enrich(self):
         if not self.config or not self.config.api_key:
             self.status_label.setText("Error: No API key configured")
             return
-        self.status_label.setText("Enriching from Comic Vine...")
+        answer = QMessageBox.question(self, "Confirm metadata update",
+            f"Update and permanently save Comic Vine metadata for all {len(self.comics)} comics?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.status_label.setText("Updating all metadata from Comic Vine...")
         self.enrich_btn.setEnabled(False)
         self.enrich_worker = EnrichWorker(
             self.comics,
             self.config.api_key,
             cache_enabled=self.config.cache_enabled,
+            batch_update=True,
         )
         self.enrich_worker.finished.connect(self._on_enrich_complete)
         self.enrich_worker.error.connect(lambda msg: self.status_label.setText(f"Error: {msg}"))
@@ -212,6 +229,10 @@ class ComicList(QWidget):
         self.clear_selection_btn.setEnabled(selected > 0)
         if selected:
             self.status_label.setText(f"{selected} comic(s) selected")
+        self.comic_focused.emit(self._current_comic())
+
+    def _emit_focus(self):
+        self.comic_focused.emit(self._current_comic())
 
     def _set_comics(self, comics):
         """Replace model data while retaining identities still present."""
@@ -219,6 +240,7 @@ class ComicList(QWidget):
         self.comics = list(comics)
         self.model.set_comics(self.comics)
         self._restore_selection()
+        self.comics_changed.emit(list(self.comics))
 
     def set_reading_list(self, reading_list):
         """Update the reading-list indicator for the current comic rows."""
@@ -260,8 +282,41 @@ class ComicList(QWidget):
         if selected:
             menu.addAction("➕ Add to Reading List", self._add_to_list)
             menu.addSeparator()
+            menu.addAction("Edit metadata", self._request_edit)
         menu.addAction("🌐 Open CV URL", lambda: self._open_cv_url(clicked_index))
         menu.exec(self.table.viewport().mapToGlobal(position))
+
+    def _current_comic(self):
+        return self._comic_from_proxy(self.table.currentIndex())
+
+    def _request_edit(self, *_args):
+        comic = self._current_comic()
+        if comic is not None:
+            self.comic_edit_requested.emit(comic)
+
+    def refresh_comic(self, comic):
+        """Notify the table that an edited comic changed in place."""
+        for row, current in enumerate(self.model.comics):
+            if current is comic or current.path == comic.path:
+                last_column = self.model.columnCount() - 1
+                self.model.dataChanged.emit(
+                    self.model.index(row, 0),
+                    self.model.index(row, last_column),
+                    [Qt.DisplayRole, Qt.EditRole, Qt.ToolTipRole],
+                )
+                self._update_counts()
+                return
+
+    def focus_comic(self, comic):
+        """Focus a comic without destroying the user's multi-selection."""
+        for row, current in enumerate(self.model.comics):
+            if current is comic or current.path == comic.path:
+                source = self.model.index(row, 0)
+                proxy = self.table.proxy_model.mapFromSource(source)
+                if proxy.isValid():
+                    self.table.setCurrentIndex(proxy)
+                    self.table.scrollTo(proxy)
+                return
 
     def _add_to_list(self):
         selected = self._selected_comics()

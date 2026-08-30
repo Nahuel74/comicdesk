@@ -2,6 +2,8 @@
 
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from dataclasses import asdict, dataclass, fields
 
@@ -21,8 +23,16 @@ class Config:
     def save(self) -> None:
         """Save config to file."""
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(asdict(self), f, indent=2)
+        fd, name = tempfile.mkstemp(dir=CONFIG_DIR, suffix=".json")
+        tmp_path = Path(name)
+        os.close(fd)
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(asdict(self), f, indent=2)
+            os.replace(tmp_path, CONFIG_FILE)
+        except Exception:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
     @classmethod
     def load(cls) -> "Config":

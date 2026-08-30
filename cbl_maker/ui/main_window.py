@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QMainWindow, QSplitter, QStatusBar, QMenu, QWidget, QVBoxLayout, QLabel
+    QMainWindow, QSplitter, QStatusBar, QTabWidget, QWidget, QVBoxLayout, QLabel
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
@@ -13,6 +13,7 @@ from cbl_maker.ui.config_dialog import ConfigDialog
 from cbl_maker.ui.folder_panel import FolderPanel
 from cbl_maker.ui.comic_list import ComicList
 from cbl_maker.ui.reading_list_panel import ReadingListPanel
+from cbl_maker.ui.cbz_metadata_panel import CbzMetadataPanel
 from cbl_maker.ui.theme import (
     SPACING,
     application_font,
@@ -32,11 +33,17 @@ class MainWindow(QMainWindow):
         self._setup_statusbar()
         self.reading_list_panel.status_message.connect(self.statusbar.showMessage)
         self.reading_list_panel.dirty_changed.connect(self.setWindowModified)
+        self.metadata_panel.status_message.connect(self.statusbar.showMessage)
+        self.metadata_panel.metadata_saved.connect(self.comic_list.refresh_comic)
+        self.metadata_panel.comic_focus_requested.connect(self.comic_list.focus_comic)
+        self.metadata_panel.dirty_changed.connect(self.setWindowModified)
+        self.comic_list.comics_changed.connect(self.metadata_panel.set_comics)
+        self.metadata_panel.set_comics(self.comic_list.comics)
         self._load_initial_folder()
 
     def _setup_ui(self):
         """Set up the main UI layout."""
-        self.setWindowTitle("CBL Maker")
+        self.setWindowTitle("CBL Maker[*]")
         self.setMinimumSize(980, 600)
         self.setFont(application_font())
         self.setStyleSheet(application_stylesheet())
@@ -76,6 +83,8 @@ class MainWindow(QMainWindow):
         # Center panel - comic list
         self.comic_list = ComicList(config=self.config)
         self.comic_list.comics_selected.connect(self._on_comics_selected)
+        self.comic_list.comic_focused.connect(self._on_comic_focused)
+        self.comic_list.comic_edit_requested.connect(self._open_metadata_tab)
         
         # Right panel - reading list
         self.reading_list_panel = ReadingListPanel()
@@ -98,7 +107,12 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(2, 1)
         splitter.setSizes([230, 480, 320])
         
-        workspace_layout.addWidget(splitter, 1)
+        self.metadata_panel = CbzMetadataPanel(config=self.config)
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("mainTabs")
+        self.tabs.addTab(splitter, "Workspace")
+        self.tabs.addTab(self.metadata_panel, "Metadata")
+        workspace_layout.addWidget(self.tabs, 1)
         self.splitter = splitter
         self.setCentralWidget(workspace)
 
@@ -159,9 +173,15 @@ class MainWindow(QMainWindow):
         """Show the settings dialog."""
         dialog = ConfigDialog(self.config, self)
         if dialog.exec():
-            self.config = dialog.get_config()
-            self.config.save()
+            new_config = dialog.get_config()
+            try:
+                new_config.save()
+            except OSError as error:
+                self.statusbar.showMessage(f"Settings could not be saved: {error}")
+                return
+            self.config = new_config
             self.comic_list.config = self.config
+            self.metadata_panel.set_config(self.config)
             self.folder_panel.set_default_folder(self.config.default_folder)
             self.statusbar.showMessage("Settings saved")
 
@@ -175,8 +195,17 @@ class MainWindow(QMainWindow):
         for comic in comics:
             self.reading_list_panel.add_comic(comic)
 
+    def _on_comic_focused(self, comic):
+        """Keep the metadata tab synchronized with the active table row."""
+        self.metadata_panel.set_comic(comic)
+
+    def _open_metadata_tab(self, comic):
+        self.metadata_panel.set_comic(comic)
+        self.tabs.setCurrentWidget(self.metadata_panel)
+
     def closeEvent(self, event):
         """Stop background work before Qt destroys the workspace children."""
         self.comic_list.shutdown_workers()
         self.reading_list_panel.shutdown_workers()
+        self.metadata_panel.shutdown_workers()
         super().closeEvent(event)

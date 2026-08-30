@@ -14,15 +14,19 @@ from cbl_maker.services.comicvine_api import ComicVineClient
 class ValidateApiKeyWorker(QThread):
     """Worker thread for API key validation."""
     finished = Signal(bool)
+    error = Signal(str)
 
     def __init__(self, api_key):
         super().__init__()
         self.api_key = api_key
 
     def run(self):
-        client = ComicVineClient(self.api_key, cache_enabled=False)
-        result = client.validate_api_key()
-        self.finished.emit(result)
+        try:
+            client = ComicVineClient(self.api_key, cache_enabled=False)
+            result = client.validate_api_key()
+            self.finished.emit(result)
+        except Exception as exc:
+            self.error.emit(str(exc))
 
 
 class ConfigDialog(QDialog):
@@ -184,6 +188,7 @@ class ConfigDialog(QDialog):
         
         self.worker = ValidateApiKeyWorker(api_key)
         self.worker.finished.connect(self._on_validation_result)
+        self.worker.error.connect(self._on_validation_error)
         self.worker.start()
 
     def _on_validation_result(self, valid):
@@ -195,6 +200,11 @@ class ConfigDialog(QDialog):
             QMessageBox.information(self, "Success", "API key is valid!")
         else:
             QMessageBox.warning(self, "Error", "Invalid API key")
+
+    def _on_validation_error(self, message):
+        self.validate_btn.setEnabled(True)
+        self.validate_btn.setText("Validate Key")
+        QMessageBox.warning(self, "Comic Vine error", message)
 
     def _browse_folder(self):
         """Browse for default folder."""
