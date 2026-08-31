@@ -99,9 +99,7 @@ class ReadingListPanel(QWidget):
             down.setEnabled(can_move and row < last)
             self.table.setCellWidget(row, 0, up)
             self.table.setCellWidget(row, 1, down)
-            display = comic.title or comic.series_name
-            year = f" ({comic.year})" if comic.year else ""
-            self.table.setItem(row, 2, QTableWidgetItem(f"{display} #{comic.issue_number}{year}"))
+            self.table.setItem(row, 2, QTableWidgetItem(f"{comic.series_name} #{comic.issue_number}"))
             self.table.setCellWidget(row, 3, self._button("×", lambda _, r=row: self._remove_at(r)))
         self._update_count()
     def _update_count(self):

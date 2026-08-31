@@ -2,7 +2,10 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import QDir, QModelIndex, QThread, Qt, QUrl, Signal
+from PySide6.QtCore import (
+    QDir, QModelIndex, QSortFilterProxyModel, QThread, QTimer, Qt, QUrl,
+    Signal,
+)
 from PySide6.QtGui import QDesktopServices, QFontMetrics
 from PySide6.QtWidgets import (
     QFileSystemModel, QHBoxLayout, QLabel, QMenu, QPushButton, QSizePolicy,
@@ -10,6 +13,15 @@ from PySide6.QtWidgets import (
 )
 
 from cbl_maker.services.cbz_reader import read_cbz_metadata
+
+
+class _FolderSortProxy(QSortFilterProxyModel):
+    """Proxy that always sorts directories alphabetically A-Z, case-insensitive."""
+
+    def lessThan(self, source_left, source_right):
+        data_left = self.sourceModel().data(source_left, Qt.DisplayRole)
+        data_right = self.sourceModel().data(source_right, Qt.DisplayRole)
+        return str(data_left).lower() < str(data_right).lower()
 
 
 class ScanWorker(QThread):
@@ -112,8 +124,14 @@ class FolderPanel(QWidget):
         self.model = QFileSystemModel()
         self.model.setRootPath(str(Path.home()))
         self.model.setFilter(QDir.Dirs | QDir.NoDotAndDotDot)
-        self.tree.setModel(self.model)
-        self.tree.setRootIndex(self.model.index(str(Path.home())))
+        self.proxy = _FolderSortProxy()
+        self.proxy.setSourceModel(self.model)
+        self.proxy.sort(0, Qt.AscendingOrder)
+        self.tree.setModel(self.proxy)
+        self.tree.setRootIndex(
+            self.proxy.mapFromSource(self.model.index(str(Path.home())))
+        )
+        self.tree.setSortingEnabled(True)
         self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._show_context_menu)
         self.tree.doubleClicked.connect(self._on_double_click)
@@ -121,6 +139,7 @@ class FolderPanel(QWidget):
         for column in range(1, 4):
             self.tree.hideColumn(column)
         layout.addWidget(self.tree)
+        self.model.directoryLoaded.connect(self._deferred_sort)
 
         self.footer = QWidget()
         self.footer.setStyleSheet("background-color:#2b2b2b; border-top:1px solid #3d3d3d;")
@@ -195,15 +214,11 @@ class FolderPanel(QWidget):
             return
         self._current_path = path
         self._update_path_label()
-        index = self.model.index(str(path))
-        if index.isValid():
-            self.tree.setRootIndex(index)
-            current = path
-            while current != current.parent:
-                parent_index = self.model.index(str(current.parent))
-                if parent_index.isValid():
-                    self.tree.expand(parent_index)
-                current = current.parent
+        source_index = self.model.index(str(path))
+        if source_index.isValid():
+            proxy_index = self.proxy.mapFromSource(source_index)
+            if proxy_index.isValid():
+                self.tree.setRootIndex(proxy_index)
 
     def _go_up(self):
         if self._current_path and self._current_path != self._current_path.parent:
@@ -214,15 +229,20 @@ class FolderPanel(QWidget):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._current_path)))
 
     def _on_double_click(self, index: QModelIndex):
-        path = Path(self.model.filePath(index))
+        source_index = self.proxy.mapToSource(index)
+        path = Path(self.model.filePath(source_index))
         if path.is_dir():
             self._navigate_to(path)
 
+    def _deferred_sort(self, _path: str):
+        QTimer.singleShot(0, lambda: self.proxy.sort(0, Qt.AscendingOrder))
+
     def _show_context_menu(self, position):
-        index = self.tree.indexAt(position)
-        if not index.isValid():
+        proxy_index = self.tree.indexAt(position)
+        if not proxy_index.isValid():
             return
-        path = Path(self.model.filePath(index))
+        source_index = self.proxy.mapToSource(proxy_index)
+        path = Path(self.model.filePath(source_index))
         if not path.is_dir():
             return
         menu = QMenu(self)

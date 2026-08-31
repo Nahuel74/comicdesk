@@ -298,3 +298,31 @@ def test_importing_empty_list_replaces_contents_and_updates_controls(panel, monk
     assert panel.clear_btn.isEnabled() is False
     assert panel.export_btn.isEnabled() is False
     assert messages == ["Imported 0 comics; 0 not located"]
+
+
+def test_reading_list_displays_series_name_not_title(panel):
+    comic = Comic(
+        path="avengers.cbz",
+        series_name="Avengers",
+        title="The Avengers assemble",
+        issue_number="22",
+        year="2023",
+    )
+    panel.add_comic(comic)
+
+    item = panel.table.item(0, 2)
+    assert item.text() == "Avengers #22"
+
+
+def test_reading_list_display_omits_year(panel):
+    comic = Comic(
+        path="spidey.cbz",
+        series_name="Amazing Spider-Man",
+        issue_number="700",
+        year="2013",
+    )
+    panel.add_comic(comic)
+
+    item = panel.table.item(0, 2)
+    assert item.text() == "Amazing Spider-Man #700"
+    assert "2013" not in item.text()
