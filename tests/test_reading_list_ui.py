@@ -7,6 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
+from cbl_maker.config import Config
 from cbl_maker.models import Comic
 from cbl_maker.services.cbl_reader import CBLDocument, CBLParseError, ReconciliationResult
 from cbl_maker.ui.main_window import MainWindow
@@ -326,3 +327,147 @@ def test_reading_list_display_omits_year(panel):
     item = panel.table.item(0, 2)
     assert item.text() == "Amazing Spider-Man #700"
     assert "2013" not in item.text()
+
+
+# --- Tests for last CBL directory persistence ---
+
+
+@pytest.fixture
+def config_panel(qapp, tmp_path):
+    config = Config(default_folder=str(tmp_path / "default_cbl"))
+    widget = ReadingListPanel(config=config)
+    yield widget
+    widget.close()
+
+
+def test_import_uses_last_cbl_directory_as_start_path(config_panel, monkeypatch, tmp_path):
+    last_dir = tmp_path / "last_import"
+    last_dir.mkdir()
+    config_panel.config.last_cbl_directory = str(last_dir)
+
+    requested = []
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName",
+        lambda *args: (requested.append(args[2]) or ("", "")),
+    )
+    config_panel.import_cbl()
+
+    assert requested == [str(last_dir)]
+
+
+def test_export_uses_last_cbl_directory_as_start_path(config_panel, monkeypatch, tmp_path):
+    last_dir = tmp_path / "last_export"
+    last_dir.mkdir()
+    config_panel.config.last_cbl_directory = str(last_dir)
+    config_panel.name_label.setText("My List")
+    config_panel.header.commit_name()
+    config_panel.add_comic(
+        Comic(path="issue.cbz", series_name="Series", issue_number="1")
+    )
+
+    requested = []
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName",
+        lambda *args: (requested.append(args[2]) or ("", "")),
+    )
+    config_panel.export_cbl()
+
+    assert requested == [str(last_dir / "My_List.cbl")]
+
+
+def test_import_persists_selected_directory(config_panel, monkeypatch, tmp_path):
+    selected_dir = tmp_path / "chosen"
+    selected_dir.mkdir()
+    selected_file = selected_dir / "test.cbl"
+
+    monkeypatch.setattr(
+        QFileDialog, "getOpenFileName",
+        lambda *args: (str(selected_file), ""),
+    )
+    monkeypatch.setattr(
+        "cbl_maker.ui.reading_list_panel.read_cbl",
+        lambda _path: CBLDocument("Empty", []),
+    )
+    monkeypatch.setattr(
+        "cbl_maker.ui.reading_list_panel.reconcile_cbl",
+        lambda _doc, _comics: ReconciliationResult([], [], []),
+    )
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
+
+    config_panel.import_cbl()
+
+    assert config_panel.config.last_cbl_directory == str(selected_dir)
+
+
+def test_export_persists_selected_directory(config_panel, monkeypatch, tmp_path):
+    selected_dir = tmp_path / "export_dir"
+    selected_dir.mkdir()
+    selected_file = selected_dir / "exported.cbl"
+
+    config_panel.add_comic(
+        Comic(path="issue.cbz", series_name="Series", issue_number="1")
+    )
+    monkeypatch.setattr(
+        QFileDialog, "getSaveFileName",
+        lambda *args: (str(selected_file), ""),
+    )
+    monkeypatch.setattr("cbl_maker.ui.reading_list_panel.save_cbl", lambda *_a: None)
+
+    config_panel.export_cbl()
+
+    assert config_panel.config.last_cbl_directory == str(selected_dir)
+
+
+def test_falls_back_to_default_folder_when_no_last_directory(qapp, tmp_path):
+    default_dir = tmp_path / "default"
+    default_dir.mkdir()
+    config = Config(default_folder=str(default_dir))
+    widget = ReadingListPanel(config=config)
+    try:
+        requested = []
+        monkeypatch_target = __import__("unittest.mock", fromlist=["patch"]).patch(
+            "PySide6.QtWidgets.QFileDialog.getOpenFileName",
+            side_effect=lambda *args: (requested.append(args[2]) or ("", "")),
+        )
+        with monkeypatch_target:
+            widget.import_cbl()
+        assert requested == [str(default_dir)]
+    finally:
+        widget.close()
+
+
+def test_first_use_with_empty_config_uses_system_default(qapp):
+    config = Config()
+    widget = ReadingListPanel(config=config)
+    try:
+        requested = []
+        monkeypatch_target = __import__("unittest.mock", fromlist=["patch"]).patch(
+            "PySide6.QtWidgets.QFileDialog.getOpenFileName",
+            side_effect=lambda *args: (requested.append(args[2]) or ("", "")),
+        )
+        with monkeypatch_target:
+            widget.import_cbl()
+        assert requested == [""]
+    finally:
+        widget.close()
+
+
+def test_import_cancels_without_persisting(config_panel, monkeypatch, tmp_path):
+    config_panel.config.last_cbl_directory = ""
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("", ""))
+
+    config_panel.import_cbl()
+
+    assert config_panel.config.last_cbl_directory == ""
+
+
+def test_export_cancels_without_persisting(config_panel, monkeypatch, tmp_path):
+    config_panel.config.last_cbl_directory = ""
+    config_panel.add_comic(
+        Comic(path="issue.cbz", series_name="Series", issue_number="1")
+    )
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args: ("", ""))
+
+    config_panel.export_cbl()
+
+    assert config_panel.config.last_cbl_directory == ""

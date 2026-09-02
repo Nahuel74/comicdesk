@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from cbl_maker.config import Config
 from cbl_maker.models import Comic, ReadingList
 from cbl_maker.services.cbl_reader import CBLParseError, read_cbl, reconcile_cbl
 from cbl_maker.services.cbl_writer import generate_cbl, save_cbl
@@ -23,8 +24,9 @@ class ReadingListPanel(QWidget):
     dirty_changed = Signal(bool)
     list_changed = Signal()
 
-    def __init__(self):
+    def __init__(self, config: Config | None = None):
         super().__init__()
+        self.config = config or Config()
         self.reading_list = ReadingList(name="New Reading List")
         self.available_comics = []
         self.is_dirty = False
@@ -152,12 +154,33 @@ class ReadingListPanel(QWidget):
         window = self.window()
         comic_list = getattr(window, "comic_list", None)
         return list(getattr(comic_list, "comics", []) or [])
+
+    def _cbl_start_directory(self) -> str:
+        """Return the best starting directory for CBL file dialogs."""
+        if self.config.last_cbl_directory:
+            return self.config.last_cbl_directory
+        if self.config.default_folder:
+            return self.config.default_folder
+        return ""
+
+    def _persist_cbl_directory(self, file_path: str) -> None:
+        """Save the parent directory of *file_path* as the last CBL directory."""
+        directory = str(Path(file_path).parent)
+        if directory != self.config.last_cbl_directory:
+            self.config.last_cbl_directory = directory
+            try:
+                self.config.save()
+            except OSError:
+                logger.debug("Could not persist last CBL directory", exc_info=True)
+
     def import_cbl(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open CBL File", "", "CBL Files (*.cbl);;All Files (*)"
+            self, "Open CBL File", self._cbl_start_directory(),
+            "CBL Files (*.cbl);;All Files (*)"
         )
         if not path:
             return
+        self._persist_cbl_directory(path)
         previous = self._list_snapshot()
         try:
             document = read_cbl(Path(path))
@@ -279,11 +302,14 @@ class ReadingListPanel(QWidget):
             return
 
         default_name = self._safe_filename(self.reading_list.name)
+        start = str(Path(self._cbl_start_directory()) / f"{default_name}.cbl") \
+            if self._cbl_start_directory() else f"{default_name}.cbl"
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save CBL File", f"{default_name}.cbl",
+            self, "Save CBL File", start,
             "CBL Files (*.cbl);;All Files (*)",
         )
         if path:
+            self._persist_cbl_directory(path)
             try:
                 save_cbl(generate_cbl(self.reading_list), Path(path))
             except OSError as error:

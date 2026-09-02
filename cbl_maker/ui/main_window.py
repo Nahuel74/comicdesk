@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
         self.comic_list.comic_edit_requested.connect(self._open_metadata_tab)
         
         # Right panel - reading list
-        self.reading_list_panel = ReadingListPanel()
+        self.reading_list_panel = ReadingListPanel(config=self.config)
         self.comic_list.set_reading_list(self.reading_list_panel.reading_list)
         self.reading_list_panel.list_changed.connect(
             lambda: self.comic_list.set_reading_list(
@@ -181,6 +181,7 @@ class MainWindow(QMainWindow):
                 return
             self.config = new_config
             self.comic_list.config = self.config
+            self.reading_list_panel.config = self.config
             self.metadata_panel.set_config(self.config)
             self.folder_panel.set_default_folder(self.config.default_folder)
             self.statusbar.showMessage("Settings saved")

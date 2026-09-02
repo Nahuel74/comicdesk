@@ -19,6 +19,7 @@ class Config:
     api_key: str = ""
     default_folder: str = ""
     cache_enabled: bool = True
+    last_cbl_directory: str = ""
 
     def save(self) -> None:
         """Save config to file."""
