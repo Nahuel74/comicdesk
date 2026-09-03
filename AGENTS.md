@@ -31,7 +31,7 @@ packaging\build_windows.bat          # output: dist\cbl-maker.exe
 
 - **Spec file**: `packaging/cbl-maker.spec` — shared across platforms
 - **CI**: `.github/workflows/release.yml` — triggers on `v*` tags or manual dispatch
-- **Release flow**: push tag `v1.0.0` → tests run → Linux + Windows binaries built → GitHub Release created with artifacts
+- **Release flow**: push tag `v1.x.x` → tests run → Linux + Windows binaries built → GitHub Release created with changelog and artifacts
 - **Version source**: `cbl_maker/__init__.py` (`__version__`)
 - **No external assets bundled** — theme is CSS-based, UI is code-only
 

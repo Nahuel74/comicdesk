@@ -107,11 +107,11 @@ packaging\build_windows.bat           # → dist\cbl-maker.exe
 ### Releasing
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.x.x
+git push cbl-maker develop --tags
 ```
 
-This triggers the GitHub Actions workflow: tests run, binaries are built for Linux and Windows, and a GitHub Release is created with the executables attached.
+This triggers the GitHub Actions workflow: tests run, binaries are built for Linux and Windows, and a GitHub Release is created with the changelog and executables attached.
 
 ## Architecture Notes
 
