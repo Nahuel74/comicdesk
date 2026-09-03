@@ -39,7 +39,7 @@ jobs:
           python-version: '3.14'
       - run: pip install -r requirements.txt pyinstaller
       - name: Build
-        run: pyinstaller build/cbl-maker.spec --clean --noconfirm
+        run: pyinstaller packaging/cbl-maker.spec --clean --noconfirm
       - name: Verify binary
         shell: bash
         run: |

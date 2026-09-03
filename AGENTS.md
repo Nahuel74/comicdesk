@@ -22,14 +22,14 @@ PyInstaller builds single-file executables for Linux and Windows.
 
 ```bash
 # Local build (Linux)
-./build/build_linux.sh           # output: dist/cbl-maker
-bash build/verify_build.sh       # verify binary integrity
+./packaging/build_linux.sh           # output: dist/cbl-maker
+bash packaging/verify_build.sh       # verify binary integrity
 
 # Local build (Windows)
-build\build_windows.bat          # output: dist\cbl-maker.exe
+packaging\build_windows.bat          # output: dist\cbl-maker.exe
 ```
 
-- **Spec file**: `build/cbl-maker.spec` — shared across platforms
+- **Spec file**: `packaging/cbl-maker.spec` — shared across platforms
 - **CI**: `.github/workflows/release.yml` — triggers on `v*` tags or manual dispatch
 - **Release flow**: push tag `v1.0.0` → tests run → Linux + Windows binaries built → GitHub Release created with artifacts
 - **Version source**: `cbl_maker/__init__.py` (`__version__`)

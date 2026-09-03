@@ -56,7 +56,7 @@ Configuration is stored at `~/.config/cbl-maker/config.json`.
 cbl-maker/
 ├── main.py                  # Entry point
 ├── requirements.txt         # Python dependencies
-├── build/
+├── packaging/
 │   ├── cbl-maker.spec       # PyInstaller spec (shared)
 │   ├── build_linux.sh       # Linux build script
 │   ├── build_windows.bat    # Windows build script
@@ -98,10 +98,10 @@ Requires [PyInstaller](https://pyinstaller.org/):
 pip install pyinstaller
 
 # Linux
-./build/build_linux.sh            # → dist/cbl-maker
+./packaging/build_linux.sh            # → dist/cbl-maker
 
 # Windows
-build\build_windows.bat           # → dist\cbl-maker.exe
+packaging\build_windows.bat           # → dist\cbl-maker.exe
 ```
 
 ### Releasing
