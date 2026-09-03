@@ -40,6 +40,9 @@ Thumbs.db
 config.json
 api_cache.json
 
+# PyInstaller
+*.spec.bak
+
 # Databases
 *.db
 *.sqlite

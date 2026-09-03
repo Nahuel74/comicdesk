@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: pip install -r requirements.txt pytest
+      - run: python -m pytest --tb=short -q
+
+  build:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: cbl-maker
+            asset: cbl-maker-linux
+          - os: windows-latest
+            artifact: cbl-maker.exe
+            asset: cbl-maker-windows.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - run: pip install -r requirements.txt pyinstaller
+      - name: Build
+        run: pyinstaller build/cbl-maker.spec --clean --noconfirm
+      - name: Verify binary
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            test -f dist/cbl-maker.exe
+            echo "Binary size: $(du -h dist/cbl-maker.exe | cut -f1)"
+          else
+            test -f dist/cbl-maker
+            echo "Binary size: $(du -h dist/cbl-maker | cut -f1)"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.artifact }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Package artifacts
+        shell: bash
+        run: |
+          cd artifacts
+          tar czf cbl-maker-linux.tar.gz cbl-maker-linux/
+          mv cbl-maker-windows.exe/cbl-maker.exe cbl-maker-windows.exe
+          rm -rf cbl-maker-linux/ cbl-maker-windows.exe/
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/cbl-maker-linux.tar.gz
+            artifacts/cbl-maker-windows.exe

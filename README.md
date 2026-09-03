@@ -19,6 +19,15 @@ A PySide6 desktop application for managing comic book metadata (CBZ ComicInfo.xm
 
 ## Installation
 
+### Pre-built Binaries
+
+Download the latest release from [Releases](https://github.com/Nahuel74/cbl-maker/releases):
+
+- **Linux**: `cbl-maker-linux.tar.gz` — extract and run `./cbl-maker`
+- **Windows**: `cbl-maker-windows.exe` — run directly
+
+### From Source
+
 ```bash
 git clone https://github.com/Nahuel74/cbl-maker.git
 cd cbl-maker
@@ -47,7 +56,13 @@ Configuration is stored at `~/.config/cbl-maker/config.json`.
 cbl-maker/
 ├── main.py                  # Entry point
 ├── requirements.txt         # Python dependencies
+├── build/
+│   ├── cbl-maker.spec       # PyInstaller spec (shared)
+│   ├── build_linux.sh       # Linux build script
+│   ├── build_windows.bat    # Windows build script
+│   └── verify_build.sh      # Binary verification
 ├── cbl_maker/
+│   ├── __init__.py          # Version (1.0.0)
 │   ├── app.py               # Application setup
 │   ├── config.py            # Configuration management
 │   ├── models.py            # Data models (Comic, CBLBook, ReadingList)
@@ -62,7 +77,9 @@ cbl-maker/
 │   │   └── metadata_session.py # Transactional metadata editing
 │   ├── ui/                  # PySide6 interface
 │   └── utils/               # Filename parsing, URL parsing
-└── tests/                   # Test suite
+├── tests/                   # Test suite
+└── .github/workflows/
+    └── release.yml          # CI: test → build → release
 ```
 
 ## Testing
@@ -72,6 +89,29 @@ python -m pytest                  # Run all tests
 python -m pytest tests/test_models.py   # Single file
 python -m pytest -k "test_name"         # Single test
 ```
+
+## Building Executables
+
+Requires [PyInstaller](https://pyinstaller.org/):
+
+```bash
+pip install pyinstaller
+
+# Linux
+./build/build_linux.sh            # → dist/cbl-maker
+
+# Windows
+build\build_windows.bat           # → dist\cbl-maker.exe
+```
+
+### Releasing
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+This triggers the GitHub Actions workflow: tests run, binaries are built for Linux and Windows, and a GitHub Release is created with the executables attached.
 
 ## Architecture Notes
 

@@ -14,7 +14,26 @@ python -m pytest tests/test_models.py   # single file
 python -m pytest -k "test_name"         # single test
 ```
 
-No linter, formatter, type checker, or CI is configured.
+No linter, formatter, or type checker is configured.
+
+## Packaging
+
+PyInstaller builds single-file executables for Linux and Windows.
+
+```bash
+# Local build (Linux)
+./build/build_linux.sh           # output: dist/cbl-maker
+bash build/verify_build.sh       # verify binary integrity
+
+# Local build (Windows)
+build\build_windows.bat          # output: dist\cbl-maker.exe
+```
+
+- **Spec file**: `build/cbl-maker.spec` — shared across platforms
+- **CI**: `.github/workflows/release.yml` — triggers on `v*` tags or manual dispatch
+- **Release flow**: push tag `v1.0.0` → tests run → Linux + Windows binaries built → GitHub Release created with artifacts
+- **Version source**: `cbl_maker/__init__.py` (`__version__`)
+- **No external assets bundled** — theme is CSS-based, UI is code-only
 
 ## Architecture
 
