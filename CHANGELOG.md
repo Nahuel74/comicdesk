@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0] - 2026-09-09
+
+### Added
+
+- Persistent GetComics wishlist populated automatically from missing CBL import references
+- Wishlist panel in GetComics with search, individual/batch download, remove, and clear actions
+- Auto-removal of wishlist items when comics become available locally after scan or download
+
+### Fixed
+
+- GetComics name searches now URL-encode `#` correctly (e.g. `Avengers #19`)
+- Wishlist and auto-resolve queries use series name and issue number only, without volume/year
+
 ## [1.2.0] - 2026-09-09
 
 ### Added
