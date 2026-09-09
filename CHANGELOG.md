@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.0] - 2026-09-09
+
+### Added
+
+- Downloads tab with sequential download queue and right-click actions (cancel, retry, remove, copy links)
+- Light/Dark theme selector with persistent config and consistent panel styling
+- Automatic fallback to alternate download mirrors when a link fails
+
+### Fixed
+
+- GetComics issue excerpt no longer disappears after issue hydration
+- Settings dialog crash on open (`apply_theme` ran before widgets were created)
+- Download button passing Qt's `checked` bool as the selected link
+- GetComics detail panel theme colors, spacing, and layout
+
 ## [1.1.0] - 2026-09-09
 
 ### Added
