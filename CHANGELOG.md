@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.1.0] - 2026-09-09
+
+### Added
+
+- GetComics tab: search getcomics.org by name, category, or tag
+- Issue detail view with cover thumbnail and download link list
+- Automatic download for direct HTTP links (e.g. Download Now / main server mirrors)
+- Manual download fallback via browser for external hosts (MEGA, Pixeldrain, etc.)
+- Configurable GetComics download folder and optional post-download Comic Vine enrichment
+- Structured logging across search, resolve, download, and UI actions for easier debugging
+
+### Fixed
+
+- Download button no longer passes Qt's `checked` bool as the selected link
+- Thumbnail loading via cloudscraper (Cloudflare-compatible image fetch)
+- Duplicate redirect resolution when picking auto-download links
+- URL-encoded filenames decoded on save
+- Download progress shows speed and ETA; cancel button stops in-flight downloads
+
 ## [1.0.0] - 2026-09-03
 
 First stable release of CBL Maker.
