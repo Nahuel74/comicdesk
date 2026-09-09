@@ -10,7 +10,8 @@ def run() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("CBL Maker")
     app.setOrganizationName("CBLMaker")
-    
+    app.setStyle("Fusion")
+
     window = MainWindow()
     window.show()
     

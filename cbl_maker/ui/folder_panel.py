@@ -13,6 +13,13 @@ from PySide6.QtWidgets import (
 )
 
 from cbl_maker.services.cbz_reader import read_cbz_metadata
+from cbl_maker.ui.theme import (
+    button_stylesheet,
+    colors_for,
+    menu_stylesheet,
+    panel_header_stylesheet,
+    muted_label_stylesheet,
+)
 
 
 class _FolderSortProxy(QSortFilterProxyModel):
@@ -56,17 +63,14 @@ class FolderPanel(QWidget):
     folder_selected = Signal(Path)
     collapsed_changed = Signal(bool)
 
-    _dark_button_style = """
-        QToolButton { border: none; font-size: 14px; }
-        QToolButton:hover { background-color: #3d3d3d; border-radius: 4px; }
-    """
-
     def __init__(self, default_folder: str = ""):
         super().__init__()
         self._default_folder = default_folder
         self._current_path = None
         self._collapsed = False
         self._expanded_width = 230
+        self._theme = "dark"
+        self._tool_buttons: list[QToolButton] = []
         self._setup_ui()
 
     def _button(self, text: str, tooltip: str) -> QToolButton:
@@ -74,7 +78,7 @@ class FolderPanel(QWidget):
         button.setText(text)
         button.setToolTip(tooltip)
         button.setFixedSize(28, 28)
-        button.setStyleSheet(self._dark_button_style)
+        self._tool_buttons.append(button)
         return button
 
     def _setup_ui(self):
@@ -83,11 +87,9 @@ class FolderPanel(QWidget):
         layout.setSpacing(0)
 
         self.header = QWidget()
-        self.header.setStyleSheet("background-color:#252526; border-bottom:1px solid #3d3d3d;")
         header_layout = QHBoxLayout(self.header)
         header_layout.setContentsMargins(10, 6, 6, 6)
         self.title_label = QLabel("FOLDERS")
-        self.title_label.setStyleSheet("color:#b8b8b8; font-size:11px; font-weight:bold;")
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
         self.collapse_btn = self._button("‹", "Collapse folders sidebar")
@@ -96,7 +98,6 @@ class FolderPanel(QWidget):
         layout.addWidget(self.header)
 
         self.navigation = QWidget()
-        self.navigation.setStyleSheet("background-color:#2b2b2b; border-bottom:1px solid #3d3d3d;")
         nav_layout = QHBoxLayout(self.navigation)
         nav_layout.setContentsMargins(8, 6, 8, 6)
         nav_layout.setSpacing(4)
@@ -104,7 +105,6 @@ class FolderPanel(QWidget):
         self.up_btn.clicked.connect(self._go_up)
         nav_layout.addWidget(self.up_btn)
         self.path_label = QLabel()
-        self.path_label.setStyleSheet("color:#e0e0e0; padding:4px 8px; font-family:monospace; font-size:12px;")
         self.path_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         nav_layout.addWidget(self.path_label)
         self.open_btn = self._button("📂", "Open in file manager")
@@ -113,14 +113,6 @@ class FolderPanel(QWidget):
         layout.addWidget(self.navigation)
 
         self.tree = QTreeView()
-        self.tree.setStyleSheet("""
-            QTreeView { background-color:#1e1e1e; color:#e0e0e0; border:none; outline:none; }
-            QTreeView::item { padding:6px 4px; min-height:24px; }
-            QTreeView::item:selected { background-color:#264f78; }
-            QTreeView::item:hover:!selected { background-color:#2d2d2d; }
-            QTreeView::branch { background-color:#1e1e1e; }
-            QTreeView::branch:hover { background-color:#2d2d2d; }
-        """)
         self.model = QFileSystemModel()
         self.model.setRootPath(str(Path.home()))
         self.model.setFilter(QDir.Dirs | QDir.NoDotAndDotDot)
@@ -142,21 +134,39 @@ class FolderPanel(QWidget):
         self.model.directoryLoaded.connect(self._deferred_sort)
 
         self.footer = QWidget()
-        self.footer.setStyleSheet("background-color:#2b2b2b; border-top:1px solid #3d3d3d;")
         footer_layout = QHBoxLayout(self.footer)
         footer_layout.setContentsMargins(8, 8, 8, 8)
         self.scan_btn = QPushButton("Scan for CBZ")
         self.scan_btn.setToolTip("Scan current folder for CBZ files")
-        self.scan_btn.setStyleSheet("""
-            QPushButton { background-color:#0e639c; color:white; border:none; padding:8px 16px;
-                border-radius:4px; font-weight:bold; }
-            QPushButton:hover { background-color:#1177bb; }
-            QPushButton:pressed { background-color:#094771; }
-        """)
+        self.scan_btn.setProperty("primary", True)
         self.scan_btn.clicked.connect(self._on_scan)
         footer_layout.addWidget(self.scan_btn)
         layout.addWidget(self.footer)
         self._set_initial_path()
+        self.apply_theme(self._theme)
+
+    def apply_theme(self, theme: str) -> None:
+        """Re-apply visual tokens for the active theme."""
+        self._theme = theme
+        c = colors_for(theme)
+        self.header.setStyleSheet(panel_header_stylesheet(theme))
+        self.title_label.setStyleSheet(
+            f"color:{c['text_secondary']}; font-size:11px; font-weight:bold;"
+        )
+        self.navigation.setStyleSheet(
+            f"background-color:{c['surface_alt']}; border-bottom:1px solid {c['border']};"
+        )
+        self.path_label.setStyleSheet(
+            f"color:{c['text']}; padding:4px 8px; font-family:monospace; font-size:12px;"
+        )
+        self.footer.setStyleSheet(
+            f"background-color:{c['surface_alt']}; border-top:1px solid {c['border']};"
+        )
+        icon_style = button_stylesheet(theme, "icon")
+        for button in self._tool_buttons:
+            button.setStyleSheet(icon_style)
+        self.scan_btn.setStyleSheet(button_stylesheet(theme, "primary"))
+        self.tree.setStyleSheet("")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -246,7 +256,7 @@ class FolderPanel(QWidget):
         if not path.is_dir():
             return
         menu = QMenu(self)
-        menu.setStyleSheet("QMenu { background:#2b2b2b; color:#e0e0e0; border:1px solid #3d3d3d; padding:4px; } QMenu::item { padding:6px 24px; } QMenu::item:selected { background:#264f78; }")
+        menu.setStyleSheet(menu_stylesheet(self._theme))
         menu.addAction("📂 Scan for CBZ", lambda: self._scan_folder(path))
         menu.addAction("📁 Open in File Manager", lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))))
         menu.exec(self.tree.viewport().mapToGlobal(position))

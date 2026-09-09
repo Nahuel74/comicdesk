@@ -16,6 +16,13 @@ from cbl_maker.ui.comic_list_workers import EnrichWorker as _EnrichWorker, ScanW
 from cbl_maker.ui.comic_table_model import ComicFilterProxyModel, ComicTableModel
 from cbl_maker.ui.comic_selection import ComicSelection
 from cbl_maker.services.comicvine_api import ComicVineClient
+from cbl_maker.ui.theme import (
+    button_stylesheet,
+    muted_label_stylesheet,
+    panel_header_stylesheet,
+    panel_title_stylesheet,
+    table_stylesheet,
+)
 
 
 class EnrichWorker(_EnrichWorker):
@@ -68,6 +75,7 @@ class ComicList(QWidget):
         self.reading_list = None
         self._selection = ComicSelection()
         self.config = config
+        self._theme = "dark"
         self.model = ComicTableModel(parent=self)
         self.table = ComicListTable(self.model, self)
         self.toolbar = ComicListToolbar(self)
@@ -82,18 +90,14 @@ class ComicList(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        header = QWidget()
-        header.setStyleSheet("background-color: #2b2b2b; border-bottom: 1px solid #3d3d3d;")
-        header_layout = QHBoxLayout(header)
+        self.header = QWidget()
+        header_layout = QHBoxLayout(self.header)
         header_layout.setContentsMargins(12, 12, 12, 12)
-        title = QLabel("Comics")
-        title.setStyleSheet("color: #e0e0e0; font-size: 14px; font-weight: bold;")
-        header_layout.addWidget(title)
+        self.title_label = QLabel("Comics")
+        header_layout.addWidget(self.title_label)
         header_layout.addStretch()
         self.enrich_btn = QPushButton("Update all metadata from Comic Vine")
-        self.enrich_btn.setStyleSheet("""QPushButton { background: #0e639c; color: white; border: none;
-            padding: 6px 12px; border-radius: 4px; } QPushButton:hover { background: #1177bb; }
-            QPushButton:disabled { background: #3d3d3d; color: #6d6d6d; }""")
+        self.enrich_btn.setProperty("primary", True)
         self.enrich_btn.clicked.connect(self._on_enrich)
         header_layout.addWidget(self.enrich_btn)
         self.add_selected_btn = QPushButton("Add selected")
@@ -106,19 +110,26 @@ class ComicList(QWidget):
         self.clear_selection_btn.setEnabled(False)
         self.clear_selection_btn.clicked.connect(self._clear_selection)
         header_layout.addWidget(self.clear_selection_btn)
-        layout.addWidget(header)
+        layout.addWidget(self.header)
         layout.addWidget(self.toolbar)
-        self.table.setStyleSheet("""QTableView { background: #1e1e1e; color: #e0e0e0; border: none;
-            gridline-color: #2d2d2d; } QTableView::item { padding: 6px; }
-            QTableView::item:selected { background: #264f78; }
-            QHeaderView::section { background: #2b2b2b; color: #e0e0e0; padding: 8px;
-            border: none; border-right: 1px solid #3d3d3d; font-weight: bold; }""")
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.table)
         self.status_label = QLabel("No comics loaded")
-        self.status_label.setStyleSheet("color: #808080; font-size: 12px; padding: 8px 12px;")
         layout.addWidget(self.status_label)
+        self.apply_theme(self._theme)
+
+    def apply_theme(self, theme: str) -> None:
+        """Re-apply visual tokens for the active theme."""
+        self._theme = theme
+        self.header.setStyleSheet(panel_header_stylesheet(theme))
+        self.title_label.setStyleSheet(panel_title_stylesheet(theme))
+        self.enrich_btn.setStyleSheet(button_stylesheet(theme, "primary"))
+        self.table.setStyleSheet(table_stylesheet(theme))
+        self.status_label.setStyleSheet(
+            muted_label_stylesheet(theme) + " padding: 8px 12px;"
+        )
+        self.toolbar.apply_theme(theme)
 
     def load_folder(self, path: Path):
         self.current_folder = path

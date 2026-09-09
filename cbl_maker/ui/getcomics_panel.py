@@ -39,7 +39,14 @@ from cbl_maker.ui.getcomics_workers import (
     GetComicsSearchWorker,
     GetComicsThumbnailWorker,
 )
-from cbl_maker.ui.theme import COLORS, SPACING
+from cbl_maker.ui.theme import (
+    SPACING,
+    button_stylesheet,
+    colors_for,
+    dialog_stylesheet,
+    getcomics_panel_stylesheet,
+    muted_label_stylesheet,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,12 +54,14 @@ logger = logging.getLogger(__name__)
 class DownloadLinksDialog(QDialog):
     """Let the user pick a provider when automatic download is unavailable."""
 
-    def __init__(self, links: list[GetComicsDownloadLink], parent=None):
+    def __init__(self, links: list[GetComicsDownloadLink], parent=None, theme: str = "dark"):
         super().__init__(parent)
         self.setWindowTitle("Select download provider")
         self.setMinimumWidth(420)
         self._links = links
+        self._theme = theme
         self.selected_link: GetComicsDownloadLink | None = None
+        self.setStyleSheet(dialog_stylesheet(theme))
 
         layout = QVBoxLayout(self)
         layout.addWidget(
@@ -98,6 +107,7 @@ class GetComicsPanel(QWidget):
         self._current_page = 1
         self._last_query = ""
         self._last_criterion = "name"
+        self._theme = "dark"
         self._build_ui()
 
     def _build_ui(self):
@@ -106,9 +116,8 @@ class GetComicsPanel(QWidget):
         outer.setContentsMargins(*(SPACING["md"] for _ in range(4)))
         outer.setSpacing(SPACING["sm"])
 
-        title = QLabel("GetComics")
-        title.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text']};")
-        outer.addWidget(title)
+        self.title_label = QLabel("GetComics")
+        outer.addWidget(self.title_label)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -172,19 +181,14 @@ class GetComicsPanel(QWidget):
 
         self.detail_title = QLabel("Select a result to view details")
         self.detail_title.setWordWrap(True)
-        self.detail_title.setStyleSheet(f"font-weight: 600; color: {COLORS['text']};")
         right_layout.addWidget(self.detail_title)
 
         meta_row = QHBoxLayout()
         self.thumbnail_label = QLabel()
         self.thumbnail_label.setFixedSize(120, 180)
         self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.thumbnail_label.setStyleSheet(
-            f"background: {COLORS['surface']}; border: 1px solid {COLORS['border']};"
-        )
         meta_col = QVBoxLayout()
         self.detail_date = QLabel("")
-        self.detail_date.setStyleSheet(f"color: {COLORS['muted']};")
         self.detail_excerpt = QLabel("")
         self.detail_excerpt.setWordWrap(True)
         meta_col.addWidget(self.detail_date)
@@ -224,7 +228,6 @@ class GetComicsPanel(QWidget):
 
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet(f"color: {COLORS['muted']};")
         right_layout.addWidget(self.status_label)
 
         splitter.addWidget(right)
@@ -232,13 +235,34 @@ class GetComicsPanel(QWidget):
         splitter.setStretchFactor(1, 2)
         splitter.setSizes([360, 640])
         outer.addWidget(splitter, 1)
+        self.apply_theme(self._theme)
 
-        self.setStyleSheet(
-            f"QWidget#getComicsPanel {{ background: {COLORS['canvas']}; color: {COLORS['text']}; }}"
-            f" QLineEdit, QComboBox, QListWidget, QTableWidget {{"
-            f" background: {COLORS['surface']}; color: {COLORS['text']};"
-            f" border: 1px solid {COLORS['border']}; border-radius: 4px; }}"
+    def apply_theme(self, theme: str) -> None:
+        """Re-apply visual tokens for the active theme."""
+        self._theme = theme
+        c = colors_for(theme)
+        self.setStyleSheet(getcomics_panel_stylesheet(theme))
+        self.title_label.setStyleSheet(
+            f"font-size: 15px; font-weight: 600; color: {c['text']};"
         )
+        self.detail_title.setStyleSheet(f"font-weight: 600; color: {c['text']};")
+        self.thumbnail_label.setStyleSheet(
+            f"background: {c['surface']}; border: 1px solid {c['border']};"
+        )
+        self.detail_date.setStyleSheet(muted_label_stylesheet(theme))
+        self.detail_excerpt.setStyleSheet(f"color: {c['text']};")
+        self.status_label.setStyleSheet(muted_label_stylesheet(theme))
+        default_btn = button_stylesheet(theme, "default")
+        for button in (
+            self.search_button,
+            self.prev_page_button,
+            self.next_page_button,
+            self.dest_browse_button,
+            self.download_button,
+            self.cancel_download_button,
+            self.browser_button,
+        ):
+            button.setStyleSheet(default_btn)
 
     def _default_download_folder(self) -> str:
         if self.config is None:
@@ -516,7 +540,7 @@ class GetComicsPanel(QWidget):
         worker.deleteLater()
         self._download_worker = None
         logger.info("getcomics_action_manual_links_required link_count=%d", len(links))
-        dialog = DownloadLinksDialog(links, self)
+        dialog = DownloadLinksDialog(links, self, theme=self._theme)
         if dialog.exec() != QDialog.DialogCode.Accepted or dialog.selected_link is None:
             self.status_label.setText("Manual provider selection cancelled")
             return

@@ -1,4 +1,4 @@
-"""Dark themed editor for metadata belonging to one selected CBZ."""
+"""Themed editor for metadata belonging to one selected CBZ."""
 from __future__ import annotations
 from pathlib import Path
 import logging
@@ -11,7 +11,13 @@ from cbl_maker.services.comicinfo import FIELD_TAGS, join_web_links
 from cbl_maker.services.identification import STATUS_CANDIDATES, STATUS_EMPTY
 from cbl_maker.services.metadata_session import MetadataSession
 from cbl_maker.ui.cbz_metadata_workers import MetadataSearchWorker, MetadataHydrateWorker, MetadataWriteWorker
-from cbl_maker.ui.theme import COLORS, SPACING
+from cbl_maker.ui.theme import (
+    SPACING,
+    button_stylesheet,
+    colors_for,
+    metadata_panel_stylesheet,
+    muted_label_stylesheet,
+)
 MULTILINE_FIELDS = {"summary", "notes", "review"}
 ID_FIELDS = (("Series ID", "cv_series_id"), ("Issue ID", "cv_issue_id"))
 CHANGED_PROPERTY = "metadataChanged"
@@ -42,6 +48,7 @@ class CbzMetadataPanel(QWidget):
         self._write_session = None; self._write_completion = None
         self._changed_fields: set[str] = set()
         self._pre_apply_values: dict[str, object] = {}
+        self._theme = "dark"
         self._build_ui()
         if comic is not None:
             self.set_comic(comic)
@@ -52,10 +59,8 @@ class CbzMetadataPanel(QWidget):
         outer.setSpacing(SPACING["sm"])
         heading = QHBoxLayout()
         self.title_label = QLabel("Metadata editor")
-        self.title_label.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text']};")
         heading.addWidget(self.title_label); heading.addStretch()
         self.state_label = QLabel("No comic selected")
-        self.state_label.setStyleSheet(f"color: {COLORS['muted']};")
         self.comicvine_status_label = self.state_label
         heading.addWidget(self.state_label); outer.addLayout(heading)
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -72,7 +77,7 @@ class CbzMetadataPanel(QWidget):
         editor = QWidget()
         editor_layout = QVBoxLayout(editor)
         editor_layout.setContentsMargins(0, 0, 0, 0)
-        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
         host = QWidget(); self.form_layout = QFormLayout(host)
         self.form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.form_layout.setSpacing(SPACING["sm"])
@@ -81,17 +86,15 @@ class CbzMetadataPanel(QWidget):
             self._add_input(label, name)
         for label, name in FIELD_TAGS:
             self._add_input(label, name)
-        scroll.setWidget(host); editor_layout.addWidget(scroll, 1)
+        self.scroll.setWidget(host); editor_layout.addWidget(self.scroll, 1)
 
-        label = QLabel("Comic Vine proposals")
-        label.setStyleSheet(f"color: {COLORS['text']}; font-weight: 600;")
-        editor_layout.addWidget(label)
+        self.proposals_label = QLabel("Comic Vine proposals")
+        editor_layout.addWidget(self.proposals_label)
         self.candidates_list = QListWidget(); self.candidate_list = self.candidates_list
         self.candidates_list.setMinimumHeight(90)
         self.candidates_list.itemSelectionChanged.connect(self._candidate_selected)
         editor_layout.addWidget(self.candidates_list)
         self.status_label = QLabel(""); self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet(f"color: {COLORS['muted']};")
         editor_layout.addWidget(self.status_label)
         actions = QHBoxLayout()
         self.search_button = self._button("Search", self.search); self.search_btn = self.search_button
@@ -107,13 +110,29 @@ class CbzMetadataPanel(QWidget):
         splitter.setSizes([240, 760])
         outer.addWidget(splitter, 1)
         self._set_action_state()
-        self.setStyleSheet(
-            f"QWidget#cbzMetadataPanel {{ background: {COLORS['canvas']}; color: {COLORS['text']}; }}"
-            f" QLineEdit, QTextEdit, QListWidget {{ background: {COLORS['surface']}; color: {COLORS['text']};"
-            f" border: 1px solid {COLORS['border']}; border-radius: 4px; padding: 4px; }}"
-             f" QListWidget::item:selected {{ background: {COLORS['selection']}; }}"
-             f" QLineEdit[{CHANGED_PROPERTY}='true'] {{ border: 2px solid {COLORS['accent']}; background: #1a3a5c; }}"
-             f" QTextEdit[{CHANGED_PROPERTY}='true'] {{ border: 2px solid {COLORS['accent']}; background: #1a3a5c; }}")
+        self.apply_theme(self._theme)
+
+    def apply_theme(self, theme: str) -> None:
+        """Re-apply visual tokens for the active theme."""
+        self._theme = theme
+        c = colors_for(theme)
+        self.setStyleSheet(metadata_panel_stylesheet(theme, CHANGED_PROPERTY))
+        self.title_label.setStyleSheet(
+            f"font-size: 15px; font-weight: 600; color: {c['text']};"
+        )
+        self.state_label.setStyleSheet(muted_label_stylesheet(theme))
+        self.proposals_label.setStyleSheet(
+            f"color: {c['text']}; font-weight: 600;"
+        )
+        self.status_label.setStyleSheet(muted_label_stylesheet(theme))
+        default_btn = button_stylesheet(theme, "default")
+        for button in (
+            self.search_button,
+            self.apply_button,
+            self.discard_button,
+        ):
+            button.setStyleSheet(default_btn)
+        self.save_button.setStyleSheet(button_stylesheet(theme, "primary"))
     def _add_input(self, label, name):
         if name in MULTILINE_FIELDS:
             widget = QTextEdit(); widget.setMaximumHeight(90)

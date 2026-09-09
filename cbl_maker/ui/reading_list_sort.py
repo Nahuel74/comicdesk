@@ -3,6 +3,8 @@
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QWidget
 
+from cbl_maker.ui.theme import colors_for, muted_label_stylesheet
+
 
 class ReadingListSort(QWidget):
     """Criterion, direction, and independent manual-mode controls."""
@@ -18,9 +20,11 @@ class ReadingListSort(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._theme = "dark"
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(QLabel("Order by:"))
+        self.order_label = QLabel("Order by:")
+        layout.addWidget(self.order_label)
         self.criterion_combo = QComboBox()
         for value, label in self.CRITERIA:
             self.criterion_combo.addItem(label, value)
@@ -39,6 +43,15 @@ class ReadingListSort(QWidget):
         self.criterion_combo.currentIndexChanged.connect(self._sorted_changed)
         self.direction_combo.currentIndexChanged.connect(self._sorted_changed)
         self.manual_check.toggled.connect(self._manual_changed)
+        self.apply_theme(self._theme)
+
+    def apply_theme(self, theme: str) -> None:
+        """Re-apply visual tokens for the active theme."""
+        self._theme = theme
+        c = colors_for(theme)
+        self.setStyleSheet(f"color: {c['text']};")
+        self.order_label.setStyleSheet(f"color: {c['text']};")
+        self.state_label.setStyleSheet(muted_label_stylesheet(theme))
 
     @property
     def criterion(self):

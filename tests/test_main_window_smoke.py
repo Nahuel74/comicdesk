@@ -1,5 +1,6 @@
 """Offscreen construction smoke test for the main workspace."""
 
+import json
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -7,7 +8,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication
 
+import cbl_maker.config as config_module
 from cbl_maker.ui.main_window import MainWindow
+from cbl_maker.ui.theme import colors_for
 
 
 @pytest.fixture
@@ -64,3 +67,16 @@ def test_main_window_closes_reading_list_workers(qapp, monkeypatch):
     window.close()
 
     assert stopped == [True]
+
+
+def test_main_window_applies_light_theme(qapp, tmp_path, monkeypatch):
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"theme": "light"}), encoding="utf-8")
+    monkeypatch.setattr(config_module, "CONFIG_FILE", config_file)
+
+    window = MainWindow()
+
+    assert window.config.theme == "light"
+    app_stylesheet = QApplication.instance().styleSheet()
+    assert colors_for("light")["canvas"] in app_stylesheet
+    window.close()

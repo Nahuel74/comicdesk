@@ -3,6 +3,14 @@
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
 
+from cbl_maker.ui.theme import (
+    button_stylesheet,
+    colors_for,
+    muted_label_stylesheet,
+    panel_header_stylesheet,
+    panel_title_stylesheet,
+)
+
 
 class ReadingListHeader(QWidget):
     """Editable list identity and list-level actions."""
@@ -16,22 +24,18 @@ class ReadingListHeader(QWidget):
         super().__init__(parent)
         self.reading_list = reading_list
         self._original_name = reading_list.name
+        self._theme = "dark"
         self.setObjectName("readingListHeader")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(6)
 
-        title = QLabel("Reading List")
-        title.setStyleSheet("color: #e0e0e0; font-size: 14px; font-weight: bold;")
-        layout.addWidget(title)
+        self.title_label = QLabel("Reading List")
+        layout.addWidget(self.title_label)
         self.name_edit = QLineEdit(reading_list.name)
         self.name_edit.setPlaceholderText("List name")
         self.name_edit.setToolTip("Enter a name for the reading list")
         self.name_edit.setMinimumWidth(130)
-        self.name_edit.setStyleSheet(
-            "QLineEdit { color: #e0e0e0; background: #3d3d3d; border: 1px solid #4d4d4d;"
-            " border-radius: 4px; padding: 4px 6px; }"
-        )
         self.name_edit.editingFinished.connect(self.commit_name)
         layout.addWidget(self.name_edit)
         self.cancel_name_btn = QPushButton("✕")
@@ -42,7 +46,6 @@ class ReadingListHeader(QWidget):
         layout.addStretch()
 
         self.count_label = QLabel("0 items")
-        self.count_label.setStyleSheet("color: #808080; font-size: 12px;")
         layout.addWidget(self.count_label)
         self.clear_btn = QPushButton("Clear")
         self.clear_btn.setToolTip("Remove all comics from the list")
@@ -56,7 +59,26 @@ class ReadingListHeader(QWidget):
         self.export_btn.setToolTip("Export this reading list")
         self.export_btn.clicked.connect(self.export_requested)
         layout.addWidget(self.export_btn)
-        self.setStyleSheet("#readingListHeader { background: #2b2b2b; border-bottom: 1px solid #3d3d3d; }")
+        self.apply_theme(self._theme)
+
+    def apply_theme(self, theme: str) -> None:
+        """Re-apply visual tokens for the active theme."""
+        self._theme = theme
+        c = colors_for(theme)
+        self.setStyleSheet(
+            f"#readingListHeader {{ {panel_header_stylesheet(theme)} }}"
+        )
+        self.title_label.setStyleSheet(panel_title_stylesheet(theme))
+        self.name_edit.setStyleSheet(
+            f"QLineEdit {{ color: {c['text']}; background: {c['input_bg']};"
+            f" border: 1px solid {c['border_strong']}; border-radius: 4px;"
+            f" padding: 4px 6px; }}"
+        )
+        self.count_label.setStyleSheet(muted_label_stylesheet(theme))
+        default_btn = button_stylesheet(theme, "default")
+        for button in (self.cancel_name_btn, self.clear_btn, self.import_btn):
+            button.setStyleSheet(default_btn)
+        self.export_btn.setStyleSheet(button_stylesheet(theme, "primary"))
 
     def commit_name(self):
         """Commit a non-empty name, otherwise restore the previous value."""

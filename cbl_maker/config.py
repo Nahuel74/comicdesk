@@ -12,6 +12,13 @@ logger = logging.getLogger(__name__)
 CONFIG_DIR = Path.home() / ".config" / "cbl-maker"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
+VALID_THEMES = frozenset({"dark", "light"})
+
+
+def normalize_theme(value: str) -> str:
+    """Return a valid theme name, defaulting to dark."""
+    return value if value in VALID_THEMES else "dark"
+
 
 @dataclass
 class Config:
@@ -22,6 +29,7 @@ class Config:
     last_cbl_directory: str = ""
     getcomics_download_folder: str = ""
     auto_enrich_after_download: bool = True
+    theme: str = "dark"
 
     def save(self) -> None:
         """Save config to file."""
@@ -47,11 +55,14 @@ class Config:
                     if not isinstance(data, dict):
                         raise TypeError("configuration root must be a JSON object")
                     known_fields = {config_field.name for config_field in fields(cls)}
-                    return cls(**{
+                    kwargs = {
                         key: value
                         for key, value in data.items()
                         if key in known_fields
-                    })
+                    }
+                    if "theme" in kwargs:
+                        kwargs["theme"] = normalize_theme(kwargs["theme"])
+                    return cls(**kwargs)
             except (json.JSONDecodeError, IOError, TypeError) as e:
                 logger.warning(f"Failed to load config: {e}")
         return cls()

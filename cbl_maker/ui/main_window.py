@@ -3,12 +3,12 @@
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QMainWindow, QSplitter, QStatusBar, QTabWidget, QWidget, QVBoxLayout, QLabel
+    QApplication, QMainWindow, QSplitter, QStatusBar, QTabWidget, QWidget, QVBoxLayout, QLabel
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 
-from cbl_maker.config import Config
+from cbl_maker.config import Config, normalize_theme
 from cbl_maker.ui.config_dialog import ConfigDialog
 from cbl_maker.ui.folder_panel import FolderPanel
 from cbl_maker.ui.comic_list import ComicList
@@ -48,9 +48,6 @@ class MainWindow(QMainWindow):
         """Set up the main UI layout."""
         self.setWindowTitle("CBL Maker[*]")
         self.setMinimumSize(980, 600)
-        self.setFont(application_font())
-        self.setStyleSheet(application_stylesheet())
-
         workspace = QWidget()
         workspace.setObjectName("workspace")
         workspace_layout = QVBoxLayout(workspace)
@@ -60,7 +57,7 @@ class MainWindow(QMainWindow):
         topbar = QWidget()
         topbar.setObjectName("workspaceTopbar")
         topbar.setMinimumHeight(44)
-        topbar.setStyleSheet(workspace_topbar_stylesheet())
+        self._topbar = topbar
         topbar_layout = QVBoxLayout(topbar)
         topbar_layout.setContentsMargins(
             SPACING["lg"], SPACING["sm"], SPACING["lg"], SPACING["sm"]
@@ -120,6 +117,25 @@ class MainWindow(QMainWindow):
         workspace_layout.addWidget(self.tabs, 1)
         self.splitter = splitter
         self.setCentralWidget(workspace)
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        """Apply the configured theme to the application and all panels."""
+        theme = normalize_theme(self.config.theme)
+        app = QApplication.instance()
+        if app is not None:
+            app.setStyleSheet(application_stylesheet(theme))
+        self.setFont(application_font())
+        self.setStyleSheet("")
+        self._topbar.setStyleSheet(workspace_topbar_stylesheet(theme))
+        for widget in (
+            self.folder_panel,
+            self.comic_list,
+            self.reading_list_panel,
+            self.metadata_panel,
+            self.getcomics_panel,
+        ):
+            widget.apply_theme(theme)
 
     def _setup_menu(self):
         """Set up the menu bar."""
@@ -190,6 +206,7 @@ class MainWindow(QMainWindow):
             self.metadata_panel.set_config(self.config)
             self.getcomics_panel.set_config(self.config)
             self.folder_panel.set_default_folder(self.config.default_folder)
+            self._apply_theme()
             self.statusbar.showMessage("Settings saved")
 
     def _on_folder_selected(self, path):

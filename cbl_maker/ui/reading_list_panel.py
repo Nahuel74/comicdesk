@@ -16,6 +16,7 @@ from cbl_maker.ui.reading_list_header import ReadingListHeader
 from cbl_maker.ui.reading_list_sort import ReadingListSort
 from cbl_maker.ui.cbl_preview import CBLPreview
 from cbl_maker.ui.reading_list_filename import safe_filename
+from cbl_maker.ui.theme import colors_for, table_stylesheet
 
 logger = logging.getLogger(__name__)
 class ReadingListPanel(QWidget):
@@ -27,6 +28,7 @@ class ReadingListPanel(QWidget):
     def __init__(self, config: Config | None = None):
         super().__init__()
         self.config = config or Config()
+        self._theme = "dark"
         self.reading_list = ReadingList(name="New Reading List")
         self.available_comics = []
         self.is_dirty = False
@@ -50,8 +52,8 @@ class ReadingListPanel(QWidget):
         self.header.name_changed.connect(self._on_name_changed)
         layout.addWidget(self.header)
 
-        controls = QWidget()
-        controls_layout = QVBoxLayout(controls)
+        self.controls = QWidget()
+        controls_layout = QVBoxLayout(self.controls)
         controls_layout.setContentsMargins(12, 6, 12, 6)
         sort_row = ReadingListSort()
         sort_row.changed.connect(self._on_sort_changed)
@@ -61,7 +63,7 @@ class ReadingListPanel(QWidget):
         self.sort_direction_combo = sort_row.direction_combo
         self.manual_check = sort_row.manual_check
         controls_layout.addWidget(sort_row)
-        layout.addWidget(controls)
+        layout.addWidget(self.controls)
 
         self._setup_table()
         self.preview = CBLPreview()
@@ -74,6 +76,18 @@ class ReadingListPanel(QWidget):
         self.splitter.setSizes([420, 240])
         self.preview.maximize_requested.connect(self._maximize_preview)
         layout.addWidget(self.splitter, 1)
+        self.apply_theme(self._theme)
+
+    def apply_theme(self, theme: str) -> None:
+        """Re-apply visual tokens for the active theme."""
+        self._theme = theme
+        c = colors_for(theme)
+        self.controls.setStyleSheet(f"background-color: {c['canvas']};")
+        self.table.setStyleSheet(table_stylesheet(theme))
+        self.header.apply_theme(theme)
+        self.sort_controls.apply_theme(theme)
+        self.preview.apply_theme(theme)
+
     def _setup_table(self):
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["", "", "Comic", ""])
