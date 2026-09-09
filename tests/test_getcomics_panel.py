@@ -10,8 +10,10 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from cbl_maker.config import Config
+from cbl_maker.models import CBLBook
 from cbl_maker.services.download_queue import DownloadQueueManager
 from cbl_maker.services.getcomics import GetComicsDownloadLink, GetComicsIssue
+from cbl_maker.services.wishlist import WishlistManager
 from cbl_maker.ui.getcomics_panel import DownloadLinksDialog, GetComicsPanel
 from cbl_maker.ui.getcomics_workers import GetComicsIssueWorker
 
@@ -25,6 +27,18 @@ def test_panel_smoke_offscreen(qapp):
     panel = GetComicsPanel(config=Config())
     assert panel.criterion_combo.count() == 3
     assert panel.download_button.isEnabled() is False
+    assert panel.wishlist_table.columnCount() == 4
+    assert panel.wishlist_count_label.text() == "0 items"
+    panel.shutdown_workers()
+
+
+def test_wishlist_table_refreshes_from_manager(qapp, tmp_path):
+    panel = GetComicsPanel(config=Config())
+    manager = WishlistManager(path=tmp_path / "wishlist.json")
+    panel.set_wishlist_manager(manager)
+    manager.add_books([CBLBook(series_name="Batman", issue_number="1")])
+    assert panel.wishlist_table.rowCount() == 1
+    assert panel.wishlist_table.item(0, 0).text() == "Batman"
     panel.shutdown_workers()
 
 

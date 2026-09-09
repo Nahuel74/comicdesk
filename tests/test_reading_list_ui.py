@@ -9,7 +9,9 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from cbl_maker.config import Config
 from cbl_maker.models import Comic
+from cbl_maker.models import CBLBook
 from cbl_maker.services.cbl_reader import CBLDocument, CBLParseError, ReconciliationResult
+from cbl_maker.services.wishlist import WishlistManager
 from cbl_maker.ui.main_window import MainWindow
 from cbl_maker.ui.reading_list_panel import ReadingListPanel
 
@@ -35,6 +37,7 @@ def _stub_import(monkeypatch, document, result, answer=QMessageBox.StandardButto
         lambda _document, _comics: result,
     )
     monkeypatch.setattr(QMessageBox, "question", lambda *args: answer)
+    monkeypatch.setattr(QMessageBox, "information", lambda *args: None)
 
 
 def test_valid_rename_updates_model_and_cancel_restores(panel):
@@ -299,6 +302,62 @@ def test_importing_empty_list_replaces_contents_and_updates_controls(panel, monk
     assert panel.clear_btn.isEnabled() is False
     assert panel.export_btn.isEnabled() is False
     assert messages == ["Imported 0 comics; 0 not located"]
+
+
+def test_import_adds_missing_items_to_wishlist(panel, monkeypatch, tmp_path):
+    wishlist = WishlistManager(path=tmp_path / "wishlist.json")
+    panel.set_wishlist_manager(wishlist)
+    missing = CBLBook(series_name="Missing", issue_number="3", cv_issue_id="42")
+    imported = Comic(path="found.cbz", series_name="Found", issue_number="1")
+    _stub_import(
+        monkeypatch,
+        CBLDocument("Mixed", [missing]),
+        ReconciliationResult([imported], [], [missing]),
+    )
+
+    panel.import_cbl()
+
+    assert len(wishlist.items()) == 1
+    assert wishlist.items()[0].cv_issue_id == "42"
+    assert panel.reading_list.comics == [imported]
+
+
+def test_import_skips_duplicate_wishlist_items(panel, monkeypatch, tmp_path):
+    wishlist = WishlistManager(path=tmp_path / "wishlist.json")
+    missing = CBLBook(series_name="Missing", issue_number="3", cv_issue_id="42")
+    wishlist.add_books([missing])
+    panel.set_wishlist_manager(wishlist)
+    imported = Comic(path="found.cbz", series_name="Found", issue_number="1")
+    _stub_import(
+        monkeypatch,
+        CBLDocument("Mixed", [missing]),
+        ReconciliationResult([imported], [], [missing]),
+    )
+
+    panel.import_cbl()
+
+    assert len(wishlist.items()) == 1
+
+
+def test_import_all_matched_shows_information(panel, monkeypatch):
+    info_calls = []
+    book = CBLBook(series_name="Found", issue_number="1")
+    comic = Comic(path="found.cbz", series_name="Found", issue_number="1")
+    _stub_import(
+        monkeypatch,
+        CBLDocument("Complete", [book]),
+        ReconciliationResult([comic], [], []),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args: info_calls.append(args[2]),
+    )
+
+    panel.import_cbl()
+
+    assert info_calls
+    assert "already available" in info_calls[0]
 
 
 def test_reading_list_displays_series_name_not_title(panel):

@@ -17,6 +17,7 @@ from cbl_maker.ui.cbz_metadata_panel import CbzMetadataPanel
 from cbl_maker.ui.getcomics_panel import GetComicsPanel
 from cbl_maker.ui.download_queue_panel import DownloadQueuePanel
 from cbl_maker.services.download_queue import DownloadQueueManager
+from cbl_maker.services.wishlist import WishlistManager
 from cbl_maker.ui.theme import (
     SPACING,
     application_font,
@@ -31,11 +32,13 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.config = Config.load()
+        self.wishlist_manager = WishlistManager()
         self._setup_ui()
         self._setup_menu()
         self._setup_statusbar()
         self.reading_list_panel.status_message.connect(self.statusbar.showMessage)
         self.reading_list_panel.dirty_changed.connect(self.setWindowModified)
+        self.reading_list_panel.wishlist_items_added.connect(self._on_wishlist_items_added)
         self.metadata_panel.status_message.connect(self.statusbar.showMessage)
         self.getcomics_panel.status_message.connect(self.statusbar.showMessage)
         self.download_queue.download_completed.connect(self._on_getcomics_download)
@@ -44,6 +47,7 @@ class MainWindow(QMainWindow):
         self.metadata_panel.comic_focus_requested.connect(self.comic_list.focus_comic)
         self.metadata_panel.dirty_changed.connect(self.setWindowModified)
         self.comic_list.comics_changed.connect(self.metadata_panel.set_comics)
+        self.comic_list.scan_completed.connect(self._on_library_scan_completed)
         self.metadata_panel.set_comics(self.comic_list.comics)
         self._load_initial_folder()
 
@@ -91,6 +95,7 @@ class MainWindow(QMainWindow):
         
         # Right panel - reading list
         self.reading_list_panel = ReadingListPanel(config=self.config)
+        self.reading_list_panel.set_wishlist_manager(self.wishlist_manager)
         self.comic_list.set_reading_list(self.reading_list_panel.reading_list)
         self.reading_list_panel.list_changed.connect(
             lambda: self.comic_list.set_reading_list(
@@ -112,6 +117,7 @@ class MainWindow(QMainWindow):
         
         self.metadata_panel = CbzMetadataPanel(config=self.config)
         self.getcomics_panel = GetComicsPanel(config=self.config)
+        self.getcomics_panel.set_wishlist_manager(self.wishlist_manager)
         self.download_queue = DownloadQueueManager(config=self.config)
         self.download_queue_panel = DownloadQueuePanel(self.download_queue, config=self.config)
         self.getcomics_panel.set_download_queue(self.download_queue)
@@ -236,6 +242,17 @@ class MainWindow(QMainWindow):
         self.metadata_panel.set_comic(comic)
         self.tabs.setCurrentWidget(self.metadata_panel)
 
+    def _on_wishlist_items_added(self, count: int) -> None:
+        self.tabs.setCurrentWidget(self.getcomics_panel)
+        self.statusbar.showMessage(f"Added {count} item(s) to the GetComics wishlist")
+
+    def _on_library_scan_completed(self, comics) -> None:
+        removed = self.wishlist_manager.reconcile_with_library(comics)
+        if removed:
+            self.statusbar.showMessage(
+                f"Removed {removed} acquired item(s) from the wishlist"
+            )
+
     def _on_getcomics_download(self, comic):
         """Refresh workspace when a download lands in the active folder."""
         comic_path = Path(comic.path)
@@ -243,13 +260,21 @@ class MainWindow(QMainWindow):
         if active_folder and comic_path.parent == Path(active_folder):
             self.comic_list.refresh_comic(comic)
             self.statusbar.showMessage(f"Downloaded: {comic_path.name}")
-            return
-        download_folder = (
-            getattr(self.config, "getcomics_download_folder", "") or self.config.default_folder
-        )
-        if download_folder and comic_path.parent == Path(download_folder):
-            self.folder_panel.select_folder(comic_path.parent)
-            self.comic_list.load_folder(comic_path.parent)
+        else:
+            download_folder = (
+                getattr(self.config, "getcomics_download_folder", "") or self.config.default_folder
+            )
+            if download_folder and comic_path.parent == Path(download_folder):
+                self.folder_panel.select_folder(comic_path.parent)
+                self.comic_list.load_folder(comic_path.parent)
+        self._reconcile_wishlist_with_library()
+
+    def _reconcile_wishlist_with_library(self) -> None:
+        removed = self.wishlist_manager.reconcile_with_library(self.comic_list.comics)
+        if removed:
+            self.statusbar.showMessage(
+                f"Removed {removed} acquired item(s) from the wishlist"
+            )
 
     def closeEvent(self, event):
         """Stop background work before Qt destroys the workspace children."""

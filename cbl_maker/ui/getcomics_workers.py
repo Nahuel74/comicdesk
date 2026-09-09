@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from cbl_maker.models import Comic
+from cbl_maker.models import CBLBook, Comic
 from cbl_maker.services.cbz_reader import read_cbz_metadata
 from cbl_maker.services.cbz_writer import write_cbz_metadata
 from cbl_maker.services.comicvine_api import ComicVineClient, ComicVineError
@@ -20,7 +20,9 @@ from cbl_maker.services.getcomics import (
     GetComicsError,
     GetComicsIssue,
     GetComicsSearchResult,
+    build_search_query,
     classify_link,
+    pick_best_search_result,
 )
 from cbl_maker.services.identification import apply_issue_to_comic, identify_comic
 from cbl_maker.utils.filename_parser import parse_comic_filename
@@ -439,4 +441,110 @@ class GetComicsDownloadWorker(QThread):
 
     def cancel(self):
         logger.info("getcomics_worker_download_cancel_requested issue=%s", self.issue.url)
+        self._cancelled = True
+
+
+class WishlistDownloadWorker(QThread):
+    """Resolve a CBL wishlist item to a GetComics issue."""
+
+    finished = Signal(object, object)
+    error = Signal(object, str)
+
+    def __init__(self, book: CBLBook):
+        super().__init__()
+        self.book = book
+        self._cancelled = False
+
+    def run(self):
+        if self._cancelled:
+            return
+        started = time.monotonic()
+        query = build_search_query(self.book)
+        logger.info("wishlist_worker_resolve_started query=%s", query)
+        try:
+            with GetComicsClient() as client:
+                results = client.search_by_name(query, page=1)
+                if self._cancelled:
+                    return
+                match = pick_best_search_result(self.book, results)
+                if match is None:
+                    if not results:
+                        self.error.emit(self.book, f"No GetComics results for '{query}'")
+                    else:
+                        self.error.emit(
+                            self.book,
+                            f"No confident GetComics match for '{query}' — try manual search",
+                        )
+                    return
+                issue = client.get_issue(match.url)
+            if not self._cancelled:
+                logger.info(
+                    "wishlist_worker_resolve_finished query=%s issue=%s duration_ms=%d",
+                    query,
+                    issue.url,
+                    int((time.monotonic() - started) * 1000),
+                )
+                self.finished.emit(self.book, issue)
+        except Exception as exc:
+            logger.exception(
+                "wishlist_worker_resolve_failed query=%s duration_ms=%d",
+                query,
+                int((time.monotonic() - started) * 1000),
+            )
+            if not self._cancelled:
+                self.error.emit(self.book, _error_message(exc))
+
+    def cancel(self):
+        self._cancelled = True
+
+
+class WishlistBatchDownloadWorker(QThread):
+    """Resolve multiple wishlist items sequentially."""
+
+    progress = Signal(int, int, object)
+    item_finished = Signal(object, object)
+    item_error = Signal(object, str)
+    finished = Signal(int, int)
+
+    def __init__(self, books: list[CBLBook]):
+        super().__init__()
+        self.books = list(books)
+        self._cancelled = False
+
+    def run(self):
+        resolved = 0
+        failed = 0
+        total = len(self.books)
+        for index, book in enumerate(self.books, start=1):
+            if self._cancelled:
+                break
+            self.progress.emit(index, total, book)
+            query = build_search_query(book)
+            try:
+                with GetComicsClient() as client:
+                    results = client.search_by_name(query, page=1)
+                    if self._cancelled:
+                        return
+                    match = pick_best_search_result(book, results)
+                    if match is None:
+                        failed += 1
+                        if not results:
+                            message = f"No GetComics results for '{query}'"
+                        else:
+                            message = f"No confident GetComics match for '{query}'"
+                        self.item_error.emit(book, message)
+                        continue
+                    issue = client.get_issue(match.url)
+                if self._cancelled:
+                    return
+                resolved += 1
+                self.item_finished.emit(book, issue)
+            except Exception as exc:
+                failed += 1
+                if not self._cancelled:
+                    self.item_error.emit(book, _error_message(exc))
+        if not self._cancelled:
+            self.finished.emit(resolved, failed)
+
+    def cancel(self):
         self._cancelled = True

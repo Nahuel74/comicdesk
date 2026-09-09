@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -32,12 +33,21 @@ from PySide6.QtWidgets import (
 )
 
 from cbl_maker.config import Config
+from cbl_maker.models import CBLBook
 from cbl_maker.services.download_queue import DownloadQueueManager, DownloadStatus
-from cbl_maker.services.getcomics import GetComicsDownloadLink, GetComicsIssue, GetComicsSearchResult
+from cbl_maker.services.getcomics import (
+    GetComicsDownloadLink,
+    GetComicsIssue,
+    GetComicsSearchResult,
+    build_search_query,
+)
+from cbl_maker.services.wishlist import WishlistManager
 from cbl_maker.ui.getcomics_workers import (
     GetComicsIssueWorker,
     GetComicsSearchWorker,
     GetComicsThumbnailWorker,
+    WishlistBatchDownloadWorker,
+    WishlistDownloadWorker,
 )
 from cbl_maker.ui.theme import (
     SPACING,
@@ -102,6 +112,9 @@ class GetComicsPanel(QWidget):
         self._search_worker: GetComicsSearchWorker | None = None
         self._issue_worker: GetComicsIssueWorker | None = None
         self._thumbnail_worker: GetComicsThumbnailWorker | None = None
+        self._wishlist_worker: WishlistDownloadWorker | None = None
+        self._wishlist_batch_worker: WishlistBatchDownloadWorker | None = None
+        self._wishlist_manager: WishlistManager | None = None
         self._thumbnail_token = 0
         self._current_issue: GetComicsIssue | None = None
         self._pending_excerpt = ""
@@ -125,6 +138,12 @@ class GetComicsPanel(QWidget):
         left = QWidget()
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins(0, 0, SPACING["sm"], 0)
+
+        left_splitter = QSplitter(Qt.Orientation.Vertical)
+
+        search_area = QWidget()
+        search_area_layout = QVBoxLayout(search_area)
+        search_area_layout.setContentsMargins(0, 0, 0, 0)
 
         search_group = QGroupBox("Search")
         search_form = QFormLayout(search_group)
@@ -154,12 +173,53 @@ class GetComicsPanel(QWidget):
         page_row.addWidget(self.page_label, 1, Qt.AlignmentFlag.AlignCenter)
         page_row.addWidget(self.next_page_button)
         search_form.addRow("", page_row)
-        left_layout.addWidget(search_group)
+        search_area_layout.addWidget(search_group)
 
         self.results_list = QListWidget()
         self.results_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.results_list.currentItemChanged.connect(self._on_result_selected)
-        left_layout.addWidget(self.results_list, 1)
+        search_area_layout.addWidget(self.results_list, 1)
+        left_splitter.addWidget(search_area)
+
+        wishlist_group = QGroupBox("Wishlist")
+        wishlist_layout = QVBoxLayout(wishlist_group)
+        self.wishlist_count_label = QLabel("0 items")
+        wishlist_layout.addWidget(self.wishlist_count_label)
+        self.wishlist_table = QTableWidget(0, 4)
+        self.wishlist_table.setHorizontalHeaderLabels(["Series", "Issue", "Volume", "CV Issue"])
+        self.wishlist_table.horizontalHeader().setStretchLastSection(True)
+        self.wishlist_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.wishlist_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.wishlist_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.wishlist_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.wishlist_table.verticalHeader().setVisible(False)
+        wishlist_layout.addWidget(self.wishlist_table, 1)
+
+        wishlist_actions = QHBoxLayout()
+        self.wishlist_search_button = QPushButton("Search")
+        self.wishlist_search_button.clicked.connect(self._wishlist_search_selected)
+        self.wishlist_download_button = QPushButton("Download")
+        self.wishlist_download_button.clicked.connect(self._wishlist_download_selected)
+        self.wishlist_download_all_button = QPushButton("Download all")
+        self.wishlist_download_all_button.clicked.connect(self._wishlist_download_all)
+        self.wishlist_remove_button = QPushButton("Remove")
+        self.wishlist_remove_button.clicked.connect(self._wishlist_remove_selected)
+        self.wishlist_clear_button = QPushButton("Clear")
+        self.wishlist_clear_button.clicked.connect(self._wishlist_clear)
+        for button in (
+            self.wishlist_search_button,
+            self.wishlist_download_button,
+            self.wishlist_download_all_button,
+            self.wishlist_remove_button,
+            self.wishlist_clear_button,
+        ):
+            wishlist_actions.addWidget(button)
+        wishlist_layout.addLayout(wishlist_actions)
+        left_splitter.addWidget(wishlist_group)
+        left_splitter.setStretchFactor(0, 3)
+        left_splitter.setStretchFactor(1, 2)
+        left_splitter.setSizes([260, 180])
+        left_layout.addWidget(left_splitter, 1)
 
         dest_group = QGroupBox("Download destination")
         dest_layout = QHBoxLayout(dest_group)
@@ -266,8 +326,19 @@ class GetComicsPanel(QWidget):
             self.dest_browse_button,
             self.download_button,
             self.browser_button,
+            self.wishlist_search_button,
+            self.wishlist_download_button,
+            self.wishlist_download_all_button,
+            self.wishlist_remove_button,
+            self.wishlist_clear_button,
         ):
             button.setStyleSheet(default_btn)
+
+    def set_wishlist_manager(self, manager: WishlistManager | None) -> None:
+        self._wishlist_manager = manager
+        if manager is not None:
+            manager.set_on_changed(self._refresh_wishlist_table)
+        self._refresh_wishlist_table()
 
     def set_download_queue(self, queue: DownloadQueueManager) -> None:
         self._download_queue = queue
@@ -604,8 +675,259 @@ class GetComicsPanel(QWidget):
         worker.deleteLater()
         self._thumbnail_worker = None
 
+    def _refresh_wishlist_table(self) -> None:
+        books = self._wishlist_manager.items() if self._wishlist_manager is not None else []
+        self.wishlist_table.setRowCount(len(books))
+        for row, book in enumerate(books):
+            self.wishlist_table.setItem(row, 0, QTableWidgetItem(book.series_name))
+            self.wishlist_table.setItem(row, 1, QTableWidgetItem(book.issue_number))
+            self.wishlist_table.setItem(row, 2, QTableWidgetItem(book.volume))
+            self.wishlist_table.setItem(row, 3, QTableWidgetItem(book.cv_issue_id or ""))
+            for column in range(4):
+                item = self.wishlist_table.item(row, column)
+                if item is not None:
+                    item.setData(Qt.ItemDataRole.UserRole, book)
+        count = len(books)
+        label = "1 item" if count == 1 else f"{count} items"
+        self.wishlist_count_label.setText(label)
+        has_items = count > 0
+        self.wishlist_download_all_button.setEnabled(has_items)
+        self.wishlist_clear_button.setEnabled(has_items)
+
+    def _selected_wishlist_books(self) -> list[CBLBook]:
+        books: list[CBLBook] = []
+        seen: set[int] = set()
+        for item in self.wishlist_table.selectedItems():
+            if item.column() != 0:
+                continue
+            book = item.data(Qt.ItemDataRole.UserRole)
+            if not isinstance(book, CBLBook):
+                continue
+            book_id = id(book)
+            if book_id in seen:
+                continue
+            seen.add(book_id)
+            books.append(book)
+        return books
+
+    def _wishlist_search_selected(self) -> None:
+        books = self._selected_wishlist_books()
+        if not books:
+            QMessageBox.information(self, "Wishlist", "Select a wishlist item to search.")
+            return
+        book = books[0]
+        query = build_search_query(book)
+        self.query_input.setText(query)
+        index = self.criterion_combo.findData("name")
+        if index >= 0:
+            self.criterion_combo.setCurrentIndex(index)
+        self._start_search()
+
+    def _wishlist_download_selected(self) -> None:
+        books = self._selected_wishlist_books()
+        if not books:
+            QMessageBox.information(self, "Wishlist", "Select a wishlist item to download.")
+            return
+        if len(books) > 1:
+            QMessageBox.information(
+                self,
+                "Wishlist",
+                "Select a single wishlist item for individual download.",
+            )
+            return
+        self._resolve_and_enqueue_wishlist_book(books[0])
+
+    def _wishlist_download_all(self) -> None:
+        if self._wishlist_manager is None:
+            return
+        books = self._wishlist_manager.items()
+        if not books:
+            return
+        if self._download_queue is None:
+            QMessageBox.warning(self, "Download queue", "Download queue is not available.")
+            return
+        dest = self._dest_path()
+        if dest is None:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Download all",
+            f"Resolve and queue downloads for {len(books)} wishlist item(s)?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._stop_wishlist_batch_worker()
+        self._wishlist_batch_worker = WishlistBatchDownloadWorker(books)
+        worker = self._wishlist_batch_worker
+        worker.progress.connect(self._on_wishlist_batch_progress)
+        worker.item_finished.connect(self._on_wishlist_batch_item_finished)
+        worker.item_error.connect(self._on_wishlist_batch_item_error)
+        worker.finished.connect(self._on_wishlist_batch_finished)
+        worker.start()
+        self._set_wishlist_busy(True, f"Resolving 0/{len(books)} wishlist items...")
+
+    def _resolve_and_enqueue_wishlist_book(self, book: CBLBook) -> None:
+        if self._download_queue is None:
+            QMessageBox.warning(self, "Download queue", "Download queue is not available.")
+            return
+        dest = self._dest_path()
+        if dest is None:
+            return
+        self._stop_wishlist_worker()
+        self._wishlist_worker = WishlistDownloadWorker(book)
+        worker = self._wishlist_worker
+        worker.finished.connect(self._on_wishlist_download_finished)
+        worker.error.connect(self._on_wishlist_download_error)
+        worker.start()
+        self._set_wishlist_busy(True, f"Resolving: {book.series_name} #{book.issue_number}")
+
+    def _enqueue_wishlist_issue(self, book: CBLBook, issue: GetComicsIssue) -> None:
+        if self._download_queue is None:
+            return
+        dest = self._dest_path()
+        if dest is None:
+            return
+        api_key = self.config.api_key if self.config else ""
+        cache_enabled = self.config.cache_enabled if self.config else True
+        auto_enrich = self.enrich_checkbox.isChecked()
+        item_id = self._download_queue.enqueue(
+            issue,
+            dest,
+            api_key=api_key,
+            cache_enabled=cache_enabled,
+            auto_enrich=auto_enrich,
+        )
+        self._tracked_download_id = item_id
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        message = f"Queued download: {issue.title}"
+        self.status_label.setText(message)
+        self.status_message.emit(message)
+
+    def _on_wishlist_download_finished(self, book: CBLBook, issue: GetComicsIssue) -> None:
+        if self._wishlist_worker is None:
+            return
+        self._set_wishlist_busy(False)
+        self._current_issue = issue
+        self.detail_title.setText(issue.title)
+        self.detail_date.setText(issue.date)
+        self.detail_excerpt.setText(issue.excerpt)
+        self._populate_links_table(issue.download_links)
+        self.download_button.setEnabled(True)
+        self.browser_button.setEnabled(True)
+        self._enqueue_wishlist_issue(book, issue)
+
+    def _on_wishlist_download_error(self, book: CBLBook, message: str) -> None:
+        if self._wishlist_worker is None:
+            return
+        self._set_wishlist_busy(False)
+        self.status_label.setText(message)
+        self.status_message.emit(message)
+        answer = QMessageBox.question(
+            self,
+            "Wishlist download",
+            f"{message}\n\nSearch manually for this item?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer == QMessageBox.StandardButton.Yes:
+            self.wishlist_table.selectRow(self._wishlist_row_for_book(book))
+            self._wishlist_search_selected()
+
+    def _wishlist_row_for_book(self, book: CBLBook) -> int:
+        for row in range(self.wishlist_table.rowCount()):
+            item = self.wishlist_table.item(row, 0)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) is book:
+                return row
+        return 0
+
+    def _on_wishlist_batch_progress(self, current: int, total: int, book: CBLBook) -> None:
+        label = f"{book.series_name} #{book.issue_number}".strip()
+        self._set_wishlist_busy(True, f"Resolving {current}/{total}: {label}")
+
+    def _on_wishlist_batch_item_finished(self, book: CBLBook, issue: GetComicsIssue) -> None:
+        self._enqueue_wishlist_issue(book, issue)
+
+    def _on_wishlist_batch_item_error(self, book: CBLBook, message: str) -> None:
+        logger.warning(
+            "wishlist_batch_item_failed series=%s issue=%s error=%s",
+            book.series_name,
+            book.issue_number,
+            message,
+        )
+
+    def _on_wishlist_batch_finished(self, resolved: int, failed: int) -> None:
+        self._set_wishlist_busy(False)
+        message = f"Wishlist batch: {resolved} queued, {failed} failed"
+        self.status_label.setText(message)
+        self.status_message.emit(message)
+        if failed:
+            QMessageBox.information(self, "Wishlist download", message)
+
+    def _wishlist_remove_selected(self) -> None:
+        if self._wishlist_manager is None:
+            return
+        books = self._selected_wishlist_books()
+        if not books:
+            QMessageBox.information(self, "Wishlist", "Select wishlist item(s) to remove.")
+            return
+        removed = self._wishlist_manager.remove_books(books)
+        if removed:
+            self.status_message.emit(f"Removed {removed} wishlist item(s)")
+
+    def _wishlist_clear(self) -> None:
+        if self._wishlist_manager is None or not self._wishlist_manager.items():
+            return
+        answer = QMessageBox.question(
+            self,
+            "Clear wishlist",
+            "Remove all wishlist items?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._wishlist_manager.clear()
+        self.status_message.emit("Wishlist cleared")
+
+    def _set_wishlist_busy(self, busy: bool, message: str = "") -> None:
+        for button in (
+            self.wishlist_search_button,
+            self.wishlist_download_button,
+            self.wishlist_download_all_button,
+            self.wishlist_remove_button,
+            self.wishlist_clear_button,
+        ):
+            button.setEnabled(not busy)
+        if not busy:
+            self._refresh_wishlist_table()
+        if message:
+            self.status_label.setText(message)
+            self.status_message.emit(message)
+
+    def _stop_wishlist_worker(self) -> None:
+        worker = self._wishlist_worker
+        if worker is None:
+            return
+        worker.cancel()
+        if worker.isRunning():
+            worker.wait(5000)
+        worker.deleteLater()
+        self._wishlist_worker = None
+
+    def _stop_wishlist_batch_worker(self) -> None:
+        worker = self._wishlist_batch_worker
+        if worker is None:
+            return
+        worker.cancel()
+        if worker.isRunning():
+            worker.wait(5000)
+        worker.deleteLater()
+        self._wishlist_batch_worker = None
+
     def shutdown_workers(self):
         logger.info("getcomics_action_shutdown_workers")
         self._stop_search_worker()
         self._stop_issue_worker()
         self._stop_thumbnail_worker()
+        self._stop_wishlist_worker()
+        self._stop_wishlist_batch_worker()

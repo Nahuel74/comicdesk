@@ -9,12 +9,18 @@ import pytest
 from cbl_maker.services.getcomics import (
     GetComicsClient,
     GetComicsDownloadLink,
+    GetComicsSearchResult,
     _extract_meta_refresh_url,
     _parse_issue_page,
     _parse_search_results,
     _parse_title_metadata,
+    _search_url,
+    build_search_query,
     classify_link,
+    pick_best_search_result,
+    rank_search_result,
 )
+from cbl_maker.models import CBLBook
 
 FIXTURES = Path(__file__).parent / "fixtures" / "getcomics"
 
@@ -62,6 +68,44 @@ def test_parse_title_metadata():
     assert parsed.series_name == "Batman"
     assert parsed.issue_number == "7"
     assert parsed.year == "2018"
+
+
+def test_build_search_query():
+    book = CBLBook(series_name="Batman", issue_number="7", volume="2018")
+    assert build_search_query(book) == "Batman #7"
+
+
+def test_build_search_query_ignores_volume():
+    book = CBLBook(series_name="Avengers", issue_number="19", volume="2018")
+    assert build_search_query(book) == "Avengers #19"
+
+
+def test_search_url_encodes_hash_and_spaces():
+    url = _search_url("name", "Avengers #19")
+    assert url == "https://getcomics.org/?s=Avengers+%2319"
+
+
+def test_search_url_encodes_hash_on_later_pages():
+    url = _search_url("name", "Avengers #19", page=2)
+    assert url == "https://getcomics.org/page/2/?s=Avengers+%2319"
+
+
+def test_rank_search_result_prefers_matching_issue():
+    book = CBLBook(series_name="Batman", issue_number="7", volume="2018")
+    good = GetComicsSearchResult(title="Batman #007 (2018)", url="https://example.com/a")
+    weak = GetComicsSearchResult(title="Batman #001 (2018)", url="https://example.com/b")
+    assert rank_search_result(book, good) > rank_search_result(book, weak)
+
+
+def test_pick_best_search_result():
+    book = CBLBook(series_name="Spider-Man", issue_number="1", volume="2024")
+    results = [
+        GetComicsSearchResult(title="Batman #001 (2024)", url="https://example.com/b"),
+        GetComicsSearchResult(title="The Amazing Spider-Man #001 (2024)", url="https://example.com/a"),
+    ]
+    match = pick_best_search_result(book, results)
+    assert match is not None
+    assert match.url.endswith("/a")
 
 
 def test_classify_link_auto_and_manual():

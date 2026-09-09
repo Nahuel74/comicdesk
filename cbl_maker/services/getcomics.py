@@ -16,6 +16,8 @@ import cloudscraper
 import httpx
 from bs4 import BeautifulSoup
 
+from cbl_maker.models import CBLBook
+
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://getcomics.org"
@@ -224,6 +226,95 @@ def _parse_title_metadata(title: str) -> ParsedTitleMetadata:
     return ParsedTitleMetadata(series_name=series_name, issue_number=issue_number, year=year)
 
 
+def _normalize_match_text(value: str) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip()).casefold()
+
+
+def _normalize_issue_number(value: str) -> str:
+    cleaned = (value or "").strip().lstrip("#")
+    if not cleaned:
+        return ""
+    try:
+        number = float(cleaned)
+        return str(int(number)) if number.is_integer() else str(number)
+    except ValueError:
+        return cleaned.casefold()
+
+
+def build_search_query(book: CBLBook) -> str:
+    """Build a GetComics name search query from a CBL reference."""
+    series = (book.series_name or "").strip()
+    if not series and book.cv_metadata:
+        series = (book.cv_metadata.series_name or "").strip()
+    issue = (book.issue_number or "").strip().lstrip("#")
+    if not issue and book.cv_metadata:
+        issue = (book.cv_metadata.issue_number or "").strip().lstrip("#")
+    if series and issue:
+        return f"{series} #{issue}"
+    if series:
+        return series
+    if issue:
+        return f"#{issue}"
+    return ""
+
+
+def rank_search_result(book: CBLBook, result: GetComicsSearchResult) -> int:
+    """Score how well a search result matches a CBL reference."""
+    parsed = _parse_title_metadata(result.title)
+    score = 0
+
+    book_series = _normalize_match_text(book.series_name)
+    if not book_series and book.cv_metadata:
+        book_series = _normalize_match_text(book.cv_metadata.series_name)
+    result_series = _normalize_match_text(parsed.series_name)
+    if book_series and result_series:
+        if book_series == result_series:
+            score += 40
+        elif book_series in result_series or result_series in book_series:
+            score += 20
+
+    book_issue = _normalize_issue_number(book.issue_number)
+    if not book_issue and book.cv_metadata:
+        book_issue = _normalize_issue_number(book.cv_metadata.issue_number)
+    result_issue = _normalize_issue_number(parsed.issue_number)
+    if book_issue and result_issue:
+        if book_issue == result_issue:
+            score += 40
+        elif book_issue in result_issue or result_issue in book_issue:
+            score += 15
+
+    book_year = (book.volume or "").strip()
+    if book_year.isdigit() and len(book_year) == 4 and parsed.year == book_year:
+        score += 10
+
+    if book.cv_issue_id and book.cv_issue_id in (result.title or ""):
+        score += 5
+
+    return score
+
+
+def pick_best_search_result(
+    book: CBLBook,
+    results: list[GetComicsSearchResult],
+    *,
+    minimum_score: int = 40,
+) -> GetComicsSearchResult | None:
+    """Return the best search result for a CBL reference, if confident enough."""
+    if not results:
+        return None
+    ranked = sorted(
+        ((rank_search_result(book, result), result) for result in results),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    best_score, best_result = ranked[0]
+    if best_score < minimum_score:
+        return None
+    if len(ranked) > 1 and ranked[1][0] == best_score:
+        return None
+    return best_result
+
+
 def _extract_meta_refresh_url(html: str) -> str | None:
     soup = BeautifulSoup(html, "html.parser")
     meta = soup.find("meta", attrs={"http-equiv": re.compile(r"refresh", re.I)})
@@ -342,7 +433,7 @@ def _parse_issue_page(html: str, url: str = "") -> GetComicsIssue:
 def _search_url(criterion: str, query: str, page: int = 1) -> str:
     slug = query.strip().strip("/")
     if criterion == "name":
-        base = f"{BASE_URL}/?s={httpx.QueryParams({'s': slug})['s']}"
+        base = str(httpx.URL(f"{BASE_URL}/", params={"s": slug}))
     elif criterion == "category":
         base = f"{BASE_URL}/cat/{slug}/"
     elif criterion == "tag":

@@ -219,16 +219,23 @@ def _find_by_key(book: CBLBook, comics: list[Comic], used: set[int]):
 def _identity(series: str, volume: str, issue: str):
     return (_normal(series), _normal(volume), _issue(issue))
 
+
+def book_dedupe_key(book: CBLBook) -> tuple:
+    """Return a stable deduplication key for a CBL reference."""
+    if book.cv_issue_id:
+        key: tuple = ("cv", _normal(book.cv_issue_id), _normal(book.cv_series_id or ""))
+    else:
+        key = ("key",) + _identity(book.series_name, book.volume, book.issue_number)
+    if key == ("key", "", "", ""):
+        key = ("position", book.position)
+    return key
+
+
 def _deduplicate(books: Iterable[CBLBook]) -> list[CBLBook]:
     seen: set[tuple] = set()
     result = []
     for book in books:
-        if book.cv_issue_id:
-            key = ("cv", _normal(book.cv_issue_id), _normal(book.cv_series_id or ""))
-        else:
-            key = ("key",) + _identity(book.series_name, book.volume, book.issue_number)
-        if key == ("key", "", "", ""):
-            key = ("position", book.position)
+        key = book_dedupe_key(book)
         if key not in seen:
             seen.add(key)
             result.append(book)

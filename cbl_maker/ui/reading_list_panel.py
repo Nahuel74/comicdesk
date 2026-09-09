@@ -12,6 +12,7 @@ from cbl_maker.config import Config
 from cbl_maker.models import Comic, ReadingList
 from cbl_maker.services.cbl_reader import CBLParseError, read_cbl, reconcile_cbl
 from cbl_maker.services.cbl_writer import generate_cbl, save_cbl
+from cbl_maker.services.wishlist import WishlistManager
 from cbl_maker.ui.reading_list_header import ReadingListHeader
 from cbl_maker.ui.reading_list_sort import ReadingListSort
 from cbl_maker.ui.cbl_preview import CBLPreview
@@ -24,11 +25,13 @@ class ReadingListPanel(QWidget):
     status_message = Signal(str)
     dirty_changed = Signal(bool)
     list_changed = Signal()
+    wishlist_items_added = Signal(int)
 
     def __init__(self, config: Config | None = None):
         super().__init__()
         self.config = config or Config()
         self._theme = "dark"
+        self._wishlist_manager: WishlistManager | None = None
         self.reading_list = ReadingList(name="New Reading List")
         self.available_comics = []
         self.is_dirty = False
@@ -159,6 +162,9 @@ class ReadingListPanel(QWidget):
     def set_available_comics(self, comics):
         self.available_comics = list(comics or [])
 
+    def set_wishlist_manager(self, manager: WishlistManager | None) -> None:
+        self._wishlist_manager = manager
+
     def shutdown_workers(self):
         """Stop work owned by this panel before the window closes."""
         return None
@@ -210,12 +216,31 @@ class ReadingListPanel(QWidget):
             self.status_message.emit(f"Import failed: {error}")
             return
 
+        wishlist_summary = ""
+        if document.books and not result.missing_files:
+            QMessageBox.information(
+                self,
+                "Import CBL",
+                "All issues in this reading list are already available in your local library.",
+            )
+        elif result.missing_files and self._wishlist_manager is not None:
+            add_result = self._wishlist_manager.add_books(result.missing_files)
+            if add_result.added:
+                self.wishlist_items_added.emit(add_result.added)
+            wishlist_summary = (
+                f"Wishlist: {add_result.added} added"
+                f"{f', {add_result.skipped_duplicates} duplicate(s) skipped' if add_result.skipped_duplicates else ''}"
+                f" (see GetComics tab).\n"
+            )
+
         summary = (
             f"Matches: {len(result.matches)}\n"
             f"New: {len(result.new_issues)}\n"
-            f"Not located: {len(result.missing_files)}\n\n"
-            f"Update the reading list with {len(result.matches)} located comics?"
+            f"Not located: {len(result.missing_files)}\n"
         )
+        if wishlist_summary:
+            summary += f"\n{wishlist_summary}"
+        summary += f"\nUpdate the reading list with {len(result.matches)} located comics?"
         title = "Update Reading List"
         if self.is_dirty:
             summary = "The current reading list has unsaved changes.\n\n" + summary
@@ -250,10 +275,10 @@ class ReadingListPanel(QWidget):
         self._update_preview()
         self._set_dirty(True)
         self._emit_list_changed_if_needed(previous)
-        self.status_message.emit(
-            f"Imported {len(result.matches)} comics; "
-            f"{len(result.missing_files)} not located"
-        )
+        status = f"Imported {len(result.matches)} comics; {len(result.missing_files)} not located"
+        if wishlist_summary:
+            status += f"; wishlist updated"
+        self.status_message.emit(status)
     def _sync_sort_controls(self):
         criterion = self.reading_list.ordered_by
         blockers = (QSignalBlocker(self.manual_check), QSignalBlocker(self.sort_combo),

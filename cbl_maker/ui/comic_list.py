@@ -67,6 +67,7 @@ class ComicList(QWidget):
     comic_focused = Signal(object)
     comic_edit_requested = Signal(object)
     comics_changed = Signal(list)
+    scan_completed = Signal(list)
 
     def __init__(self, config=None):
         super().__init__()
@@ -197,6 +198,7 @@ class ComicList(QWidget):
         self.set_reading_list(self.reading_list)
         self.status_label.setText(f"Found {len(comics)} comics")
         self._update_counts()
+        self.scan_completed.emit(comics)
 
     def _on_scan_error(self, message, worker):
         if worker is self.worker:
