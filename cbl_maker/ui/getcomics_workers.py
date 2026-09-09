@@ -248,6 +248,90 @@ class GetComicsDownloadWorker(QThread):
             return f"{size / 1024:.1f} KB"
         return f"{size / (1024 * 1024):.1f} MB"
 
+    def _download_with_link_fallback(self, client: GetComicsClient) -> Path | None:
+        tried_urls: set[str] = set()
+        last_error: GetComicsDownloadError | None = None
+        link = self.selected_link
+        if link is not None and not isinstance(link, GetComicsDownloadLink):
+            link = None
+
+        while not self._cancelled:
+            if link is None:
+                self.progress.emit(2, 100, "Selecting download link...")
+                link = client.pick_auto_download_link(
+                    self.issue.download_links,
+                    exclude_urls=tried_urls,
+                )
+                if link is None:
+                    if tried_urls and last_error is not None:
+                        raise last_error
+                    logger.info(
+                        "getcomics_worker_download_manual_links_required issue=%s",
+                        self.issue.url,
+                    )
+                    if not self._cancelled:
+                        self.manual_links_required.emit(self.issue.download_links)
+                    return None
+
+            if self._cancelled:
+                raise GetComicsDownloadError("Download cancelled")
+
+            failed_provider = link.provider
+            failed_url = link.url
+            try:
+                if link.resolved_url and link.url not in tried_urls:
+                    resolved = link.resolved_url
+                    logger.info(
+                        "getcomics_worker_download_using_cached_resolve provider=%s resolved=%s",
+                        link.provider,
+                        resolved,
+                    )
+                else:
+                    self.progress.emit(5, 100, f"Resolving {link.provider}...")
+                    resolved = client.resolve_redirect(link.url)
+                    logger.info(
+                        "getcomics_worker_download_resolved provider=%s source=%s resolved=%s",
+                        link.provider,
+                        link.url,
+                        resolved,
+                    )
+                if not classify_link(link, resolved):
+                    logger.info(
+                        "getcomics_worker_download_manual_links_required provider=%s resolved=%s",
+                        link.provider,
+                        resolved,
+                    )
+                    if not self._cancelled:
+                        self.manual_links_required.emit(self.issue.download_links)
+                    return None
+
+                self._download_started = time.monotonic()
+                self.progress.emit(10, 100, f"Downloading via {link.provider}...")
+                return client.download_file(
+                    link.url,
+                    self.dest_dir,
+                    resolved_url=resolved,
+                    progress_callback=self._emit_download_progress,
+                    cancelled=lambda: self._cancelled,
+                    referer=self.issue.url,
+                )
+            except GetComicsDownloadError as exc:
+                if self._cancelled or "cancelled" in str(exc).lower():
+                    raise
+                tried_urls.add(failed_url)
+                last_error = exc
+                link = None
+                logger.warning(
+                    "getcomics_worker_download_link_failed provider=%s url=%s error=%s",
+                    failed_provider,
+                    failed_url,
+                    exc,
+                )
+                if not self._cancelled:
+                    self.progress.emit(8, 100, "Trying another download link...")
+
+        raise GetComicsDownloadError("Download cancelled")
+
     def _emit_download_progress(self, downloaded: int, total: int | None) -> None:
         now = time.monotonic()
         elapsed = now - self._download_started if self._download_started else 0.0
@@ -289,59 +373,9 @@ class GetComicsDownloadWorker(QThread):
         )
         try:
             with GetComicsClient() as client:
-                link = self.selected_link
-                if link is None:
-                    self.progress.emit(2, 100, "Selecting download link...")
-                    link = client.pick_auto_download_link(self.issue.download_links)
-                    if link is None:
-                        logger.info(
-                            "getcomics_worker_download_manual_links_required issue=%s",
-                            self.issue.url,
-                        )
-                        if not self._cancelled:
-                            self.manual_links_required.emit(self.issue.download_links)
-                        return
-
-                if self._cancelled:
-                    return
-                if link.resolved_url:
-                    resolved = link.resolved_url
-                    logger.info(
-                        "getcomics_worker_download_using_cached_resolve provider=%s resolved=%s",
-                        link.provider,
-                        resolved,
-                    )
-                else:
-                    self.progress.emit(5, 100, f"Resolving {link.provider}...")
-                    resolved = client.resolve_redirect(link.url)
-                    logger.info(
-                        "getcomics_worker_download_resolved provider=%s source=%s resolved=%s",
-                        link.provider,
-                        link.url,
-                        resolved,
-                    )
-                if not classify_link(link, resolved):
-                    logger.info(
-                        "getcomics_worker_download_manual_links_required provider=%s resolved=%s",
-                        link.provider,
-                        resolved,
-                    )
-                    if not self._cancelled:
-                        self.manual_links_required.emit(self.issue.download_links)
-                    return
-
-                if self._cancelled:
-                    return
-                self._download_started = time.monotonic()
-                self.progress.emit(10, 100, "Downloading file...")
-                path = client.download_file(
-                    link.url,
-                    self.dest_dir,
-                    resolved_url=resolved,
-                    progress_callback=self._emit_download_progress,
-                    cancelled=lambda: self._cancelled,
-                    referer=self.issue.url,
-                )
+                path = self._download_with_link_fallback(client)
+            if path is None:
+                return
 
             if self._cancelled:
                 logger.info(

@@ -10,9 +10,10 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from cbl_maker.config import Config
-from cbl_maker.models import Comic
+from cbl_maker.services.download_queue import DownloadQueueManager
 from cbl_maker.services.getcomics import GetComicsDownloadLink, GetComicsIssue
 from cbl_maker.ui.getcomics_panel import DownloadLinksDialog, GetComicsPanel
+from cbl_maker.ui.getcomics_workers import GetComicsIssueWorker
 
 
 @pytest.fixture
@@ -39,8 +40,30 @@ def test_manual_links_dialog_lists_providers(qapp):
     assert dialog.selected_link is links[1]
 
 
-def test_shutdown_workers_stops_active_thread(qapp):
+def test_issue_loaded_preserves_search_excerpt(qapp):
     panel = GetComicsPanel(config=Config())
+    search_excerpt = "Summary from search results."
+    issue = GetComicsIssue(
+        title="Test",
+        url="https://getcomics.org/comics/test/",
+        excerpt="",
+        download_links=[
+            GetComicsDownloadLink("MAIN SERVER", "MAIN SERVER", "https://getcomics.org/dls/main/"),
+        ],
+    )
+    panel._pending_excerpt = search_excerpt
+    panel.detail_excerpt.setText(search_excerpt)
+    worker = GetComicsIssueWorker(issue.url)
+    panel._issue_worker = worker
+    panel._on_issue_loaded(issue, worker)
+    assert panel.detail_excerpt.text() == search_excerpt
+    panel.shutdown_workers()
+
+
+def test_start_download_enqueues_and_shows_progress(qapp, tmp_path):
+    panel = GetComicsPanel(config=Config())
+    queue = DownloadQueueManager(config=Config())
+    panel.set_download_queue(queue)
     issue = GetComicsIssue(
         title="Test",
         url="https://getcomics.org/comics/test/",
@@ -49,19 +72,14 @@ def test_shutdown_workers_stops_active_thread(qapp):
         ],
     )
     panel._current_issue = issue
-    panel.dest_input.setText(str(Path.cwd()))
+    panel.dest_input.setText(str(tmp_path))
 
-    with patch("cbl_maker.ui.getcomics_workers.GetComicsClient") as client_cls:
-        client = client_cls.return_value.__enter__.return_value
-        client.pick_auto_download_link.return_value = issue.download_links[0]
-        client.resolve_redirect.return_value = "https://getcomics.org/files/test.cbz"
-        client.download_file.return_value = Path("test.cbz")
+    panel.show()
+    with patch.object(queue, "enqueue", return_value="abc123") as enqueue:
+        panel._start_download()
 
-        with patch(
-            "cbl_maker.ui.getcomics_workers._build_comic_from_download",
-            return_value=Comic(Path("test.cbz")),
-        ):
-            panel._start_download()
-            panel.shutdown_workers()
-
-    assert panel._download_worker is None
+    enqueue.assert_called_once()
+    assert enqueue.call_args.kwargs["selected_link"] is None
+    assert panel.progress_bar.isVisible()
+    assert panel._tracked_download_id == "abc123"
+    panel.shutdown_workers()

@@ -32,9 +32,9 @@ from PySide6.QtWidgets import (
 )
 
 from cbl_maker.config import Config
+from cbl_maker.services.download_queue import DownloadQueueManager, DownloadStatus
 from cbl_maker.services.getcomics import GetComicsDownloadLink, GetComicsIssue, GetComicsSearchResult
 from cbl_maker.ui.getcomics_workers import (
-    GetComicsDownloadWorker,
     GetComicsIssueWorker,
     GetComicsSearchWorker,
     GetComicsThumbnailWorker,
@@ -93,17 +93,18 @@ class DownloadLinksDialog(QDialog):
 
 class GetComicsPanel(QWidget):
     status_message = Signal(str)
-    download_completed = Signal(object)
 
     def __init__(self, config: Config | None = None, parent=None):
         super().__init__(parent)
         self.config = config
+        self._download_queue: DownloadQueueManager | None = None
+        self._tracked_download_id: str | None = None
         self._search_worker: GetComicsSearchWorker | None = None
         self._issue_worker: GetComicsIssueWorker | None = None
-        self._download_worker: GetComicsDownloadWorker | None = None
         self._thumbnail_worker: GetComicsThumbnailWorker | None = None
         self._thumbnail_token = 0
         self._current_issue: GetComicsIssue | None = None
+        self._pending_excerpt = ""
         self._current_page = 1
         self._last_query = ""
         self._last_criterion = "name"
@@ -176,23 +177,30 @@ class GetComicsPanel(QWidget):
         splitter.addWidget(left)
 
         right = QWidget()
+        right.setMinimumWidth(400)
         right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setContentsMargins(
+            SPACING["md"], SPACING["xs"], SPACING["md"], SPACING["md"]
+        )
+        right_layout.setSpacing(SPACING["md"])
 
         self.detail_title = QLabel("Select a result to view details")
         self.detail_title.setWordWrap(True)
         right_layout.addWidget(self.detail_title)
 
         meta_row = QHBoxLayout()
+        meta_row.setSpacing(SPACING["md"])
         self.thumbnail_label = QLabel()
         self.thumbnail_label.setFixedSize(120, 180)
         self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         meta_col = QVBoxLayout()
+        meta_col.setSpacing(SPACING["sm"])
+        meta_col.setContentsMargins(0, SPACING["xs"], 0, 0)
         self.detail_date = QLabel("")
         self.detail_excerpt = QLabel("")
         self.detail_excerpt.setWordWrap(True)
         meta_col.addWidget(self.detail_date)
-        meta_col.addWidget(self.detail_excerpt)
+        meta_col.addWidget(self.detail_excerpt, 1)
         meta_row.addWidget(self.thumbnail_label)
         meta_row.addLayout(meta_col, 1)
         right_layout.addLayout(meta_row)
@@ -205,17 +213,14 @@ class GetComicsPanel(QWidget):
         right_layout.addWidget(self.links_table, 1)
 
         action_row = QHBoxLayout()
+        action_row.setSpacing(SPACING["sm"])
         self.download_button = QPushButton("Download")
         self.download_button.clicked.connect(lambda: self._start_download())
         self.download_button.setEnabled(False)
-        self.cancel_download_button = QPushButton("Cancel")
-        self.cancel_download_button.clicked.connect(self._cancel_download)
-        self.cancel_download_button.setVisible(False)
         self.browser_button = QPushButton("Open in browser")
         self.browser_button.clicked.connect(self._open_selected_in_browser)
         self.browser_button.setEnabled(False)
         action_row.addWidget(self.download_button)
-        action_row.addWidget(self.cancel_download_button)
         action_row.addWidget(self.browser_button)
         action_row.addStretch()
         right_layout.addLayout(action_row)
@@ -231,9 +236,9 @@ class GetComicsPanel(QWidget):
         right_layout.addWidget(self.status_label)
 
         splitter.addWidget(right)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
-        splitter.setSizes([360, 640])
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([320, 680])
         outer.addWidget(splitter, 1)
         self.apply_theme(self._theme)
 
@@ -249,6 +254,7 @@ class GetComicsPanel(QWidget):
         self.thumbnail_label.setStyleSheet(
             f"background: {c['surface']}; border: 1px solid {c['border']};"
         )
+        self.page_label.setStyleSheet(muted_label_stylesheet(theme))
         self.detail_date.setStyleSheet(muted_label_stylesheet(theme))
         self.detail_excerpt.setStyleSheet(f"color: {c['text']};")
         self.status_label.setStyleSheet(muted_label_stylesheet(theme))
@@ -259,10 +265,13 @@ class GetComicsPanel(QWidget):
             self.next_page_button,
             self.dest_browse_button,
             self.download_button,
-            self.cancel_download_button,
             self.browser_button,
         ):
             button.setStyleSheet(default_btn)
+
+    def set_download_queue(self, queue: DownloadQueueManager) -> None:
+        self._download_queue = queue
+        queue.item_updated.connect(self._on_queue_item_updated)
 
     def _default_download_folder(self) -> str:
         if self.config is None:
@@ -358,6 +367,7 @@ class GetComicsPanel(QWidget):
             return
         self.detail_title.setText(result.title)
         self.detail_date.setText(result.date)
+        self._pending_excerpt = result.excerpt
         self.detail_excerpt.setText(result.excerpt)
         logger.info("getcomics_action_issue_selected title=%s url=%s", result.title, result.url)
         self._load_thumbnail(result.thumbnail_url)
@@ -376,7 +386,9 @@ class GetComicsPanel(QWidget):
         self._current_issue = issue
         self.detail_title.setText(issue.title)
         self.detail_date.setText(issue.date)
-        self.detail_excerpt.setText(issue.excerpt)
+        excerpt = issue.excerpt or self._pending_excerpt
+        if excerpt:
+            self.detail_excerpt.setText(excerpt)
         self._load_thumbnail(issue.thumbnail_url)
         self._populate_links_table(issue.download_links)
         self.download_button.setEnabled(True)
@@ -427,12 +439,8 @@ class GetComicsPanel(QWidget):
     def _start_download(self, selected_link: GetComicsDownloadLink | None = None):
         if self._current_issue is None:
             return
-        if self._download_worker is not None and self._download_worker.isRunning():
-            QMessageBox.warning(
-                self,
-                "Download in progress",
-                "Wait for the current download to finish before starting another one.",
-            )
+        if self._download_queue is None:
+            QMessageBox.warning(self, "Download queue", "Download queue is not available.")
             return
         dest = self._dest_path()
         if dest is None:
@@ -441,16 +449,13 @@ class GetComicsPanel(QWidget):
         cache_enabled = self.config.cache_enabled if self.config else True
         auto_enrich = self.enrich_checkbox.isChecked()
         logger.info(
-            "getcomics_action_download_started issue=%s dest_dir=%s auto_enrich=%s selected_provider=%s",
+            "getcomics_action_download issue=%s dest_dir=%s auto_enrich=%s selected_provider=%s",
             self._current_issue.url,
             dest,
             auto_enrich,
             getattr(selected_link, "provider", None),
         )
-        self._set_download_active(True, "Starting download...")
-        self.progress_bar.setVisible(True)
-        self.progress_bar.setValue(0)
-        self._download_worker = GetComicsDownloadWorker(
+        item_id = self._download_queue.enqueue(
             self._current_issue,
             dest,
             api_key=api_key,
@@ -458,106 +463,44 @@ class GetComicsPanel(QWidget):
             auto_enrich=auto_enrich,
             selected_link=selected_link,
         )
-        worker = self._download_worker
-        worker.progress.connect(self._on_download_progress)
-        worker.finished.connect(lambda comic, w=worker: self._on_download_finished(comic, w))
-        worker.error.connect(lambda message, w=worker: self._on_download_error(message, w))
-        worker.manual_links_required.connect(
-            lambda links, w=worker: self._on_manual_links_required(links, w)
-        )
-        worker.cancelled.connect(lambda w=worker: self._on_download_cancelled(w))
-        worker.start()
+        self._tracked_download_id = item_id
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        message = f"Downloading: {self._current_issue.title}"
+        self.status_label.setText(message)
+        self.status_message.emit(message)
 
-    def _set_download_active(self, active: bool, message: str = ""):
-        self.download_button.setEnabled(not active and self._current_issue is not None)
-        self.cancel_download_button.setVisible(active)
-        self.cancel_download_button.setEnabled(active)
-        self.browser_button.setEnabled(not active and self._current_issue is not None)
-        self.search_button.setEnabled(not active)
-        if message:
+    def _on_queue_item_updated(self, item_id: str) -> None:
+        if self._download_queue is None:
+            return
+        item = self._download_queue.get_item(item_id)
+        if item is None:
+            return
+        if item.status == DownloadStatus.RUNNING:
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(item.progress)
+            if item.status_message:
+                self.status_label.setText(item.status_message)
+                self.status_message.emit(item.status_message)
+            return
+        if item_id != self._tracked_download_id:
+            return
+        self.progress_bar.setVisible(False)
+        if item.status == DownloadStatus.COMPLETED:
+            message = item.status_message or f"Saved to {item.result_comic.path if item.result_comic else 'file'}"
             self.status_label.setText(message)
-
-    def _cancel_download(self):
-        worker = self._download_worker
-        if worker is None or not worker.isRunning():
-            return
-        logger.info(
-            "getcomics_action_download_cancel issue=%s",
-            getattr(self._current_issue, "url", ""),
-        )
-        worker.cancel()
-        self.cancel_download_button.setEnabled(False)
-        self.status_label.setText("Cancelling download...")
-        self.status_message.emit("Cancelling download...")
-
-    def _on_download_progress(self, current: int, total: int, message: str):
-        self.progress_bar.setMaximum(total)
-        self.progress_bar.setValue(current)
-        self.status_label.setText(message)
-        self.status_message.emit(message)
-
-    def _on_download_finished(self, comic, worker):
-        if worker is not self._download_worker:
-            return
-        self._set_download_active(False)
-        self.progress_bar.setVisible(False)
-        message = f"Saved to {comic.path}"
-        self.status_label.setText(message)
-        self.status_message.emit(message)
-        self.download_completed.emit(comic)
-        logger.info("getcomics_action_download_finished path=%s", comic.path)
-        worker.deleteLater()
-        self._download_worker = None
-
-    def _on_download_cancelled(self, worker):
-        if worker is not self._download_worker:
-            return
-        self._set_download_active(False)
-        self.progress_bar.setVisible(False)
-        self.status_label.setText("Download cancelled")
-        self.status_message.emit("Download cancelled")
-        logger.info("getcomics_action_download_cancelled")
-        worker.deleteLater()
-        self._download_worker = None
-
-    def _on_download_error(self, message: str, worker):
-        if worker is not self._download_worker:
-            return
-        self._set_download_active(False)
-        self.progress_bar.setVisible(False)
-        self.status_label.setText(message)
-        self.status_message.emit(message)
-        logger.warning("getcomics_action_download_failed message=%s", message)
-        QMessageBox.warning(self, "Download failed", message)
-        worker.deleteLater()
-        self._download_worker = None
-
-    def _on_manual_links_required(self, links: list[GetComicsDownloadLink], worker):
-        if worker is not self._download_worker:
-            return
-        self._set_download_active(False)
-        self.progress_bar.setVisible(False)
-        worker.deleteLater()
-        self._download_worker = None
-        logger.info("getcomics_action_manual_links_required link_count=%d", len(links))
-        dialog = DownloadLinksDialog(links, self, theme=self._theme)
-        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.selected_link is None:
-            self.status_label.setText("Manual provider selection cancelled")
-            return
-        link = dialog.selected_link
-        if link.is_auto_downloadable:
-            self._start_download(selected_link=link)
-            return
-        answer = QMessageBox.question(
-            self,
-            "Open in browser",
-            f"Open {link.provider} in your browser for manual download?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if answer == QMessageBox.StandardButton.Yes:
-            logger.info("getcomics_action_open_browser provider=%s url=%s", link.provider, link.url)
-            QDesktopServices.openUrl(QUrl(link.url))
-            self.status_message.emit(f"Opened {link.provider} in browser")
+            self.status_message.emit(message)
+        elif item.status == DownloadStatus.ERROR:
+            self.status_label.setText(item.error_message or item.status_message)
+            self.status_message.emit(item.error_message or item.status_message)
+            QMessageBox.warning(self, "Download failed", item.error_message or item.status_message)
+        elif item.status == DownloadStatus.CANCELLED:
+            self.status_label.setText("Download cancelled")
+            self.status_message.emit("Download cancelled")
+        elif item.status == DownloadStatus.NEEDS_ATTENTION:
+            self.status_label.setText("Select a download provider in the Downloads tab")
+            self.status_message.emit("Manual provider selection required")
+        self._tracked_download_id = None
 
     def _open_selected_in_browser(self):
         link = self._selected_link()
@@ -615,6 +558,7 @@ class GetComicsPanel(QWidget):
 
     def _clear_detail(self):
         self._current_issue = None
+        self._pending_excerpt = ""
         self.detail_title.setText("Select a result to view details")
         self.detail_date.clear()
         self.detail_excerpt.clear()
@@ -650,16 +594,6 @@ class GetComicsPanel(QWidget):
         worker.deleteLater()
         self._issue_worker = None
 
-    def _stop_download_worker(self):
-        worker = self._download_worker
-        if worker is None:
-            return
-        worker.cancel()
-        if worker.isRunning():
-            worker.wait()
-        worker.deleteLater()
-        self._download_worker = None
-
     def _stop_thumbnail_worker(self):
         worker = self._thumbnail_worker
         if worker is None:
@@ -674,5 +608,4 @@ class GetComicsPanel(QWidget):
         logger.info("getcomics_action_shutdown_workers")
         self._stop_search_worker()
         self._stop_issue_worker()
-        self._stop_download_worker()
         self._stop_thumbnail_worker()

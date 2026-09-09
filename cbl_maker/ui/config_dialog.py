@@ -43,7 +43,6 @@ class ConfigDialog(QDialog):
         """Set up the dialog UI."""
         self.setWindowTitle("Settings")
         self.setMinimumWidth(450)
-        self.apply_theme(self._theme)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(16)
@@ -122,6 +121,7 @@ class ConfigDialog(QDialog):
         btn_layout.addWidget(self.save_btn)
 
         layout.addLayout(btn_layout)
+        self.apply_theme(self._theme)
 
     def apply_theme(self, theme: str) -> None:
         """Re-apply visual tokens for the active theme."""

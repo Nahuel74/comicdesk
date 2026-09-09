@@ -372,6 +372,19 @@ def button_stylesheet(theme: str = "dark", variant: str = "default") -> str:
                 border-radius: 4px;
             }}
         """
+    if variant == "compact":
+        return f"""
+            QPushButton {{
+                background-color: {c['disabled_bg']};
+                color: {c['text']};
+                border: none;
+                padding: 2px 6px;
+                border-radius: 3px;
+                font-size: 11px;
+            }}
+            QPushButton:hover {{ background-color: {c['border_strong']}; }}
+            QPushButton:pressed {{ background-color: {c['border']}; }}
+        """
     return f"""
         QPushButton {{
             background-color: {c['disabled_bg']};
@@ -455,17 +468,33 @@ def metadata_panel_stylesheet(theme: str = "dark", changed_property: str = "meta
     )
 
 
+def download_queue_panel_stylesheet(theme: str = "dark") -> str:
+    """Stylesheet for the download queue panel."""
+    c = colors_for(theme)
+    return f"QWidget#downloadQueuePanel {{ background: {c['canvas']}; color: {c['text']}; }}"
+
+
 def getcomics_panel_stylesheet(theme: str = "dark") -> str:
     """Stylesheet for the GetComics panel."""
     c = colors_for(theme)
     return (
         f"QWidget#getComicsPanel {{ background: {c['canvas']}; color: {c['text']}; }}"
+        f" QLabel {{ color: {c['text']}; background: transparent; }}"
+        f" QCheckBox {{ color: {c['text']}; }}"
         f" QLineEdit, QComboBox, QListWidget, QTableWidget {{"
         f" background: {c['surface']}; color: {c['text']};"
         f" border: 1px solid {c['border']}; border-radius: 4px; }}"
+        f" QListWidget::item:selected {{ background: {c['selection']}; color: {c['text']}; }}"
+        f" QHeaderView::section {{"
+        f" background: {c['surface_alt']}; color: {c['text']};"
+        f" border: 1px solid {c['border']}; padding: 4px; }}"
+        f" QProgressBar {{"
+        f" background: {c['surface']}; color: {c['text']};"
+        f" border: 1px solid {c['border']}; border-radius: 4px; text-align: center; }}"
+        f" QProgressBar::chunk {{ background: {c['accent']}; border-radius: 3px; }}"
         f" QGroupBox {{ color: {c['text']}; border: 1px solid {c['border']};"
         f" border-radius: 4px; margin-top: 8px; padding-top: 16px; }}"
-        f" QGroupBox::title {{ subcontrol-origin: margin; left: 8px; padding: 0 4px; }}"
+        f" QGroupBox::title {{ subcontrol-origin: margin; left: 8px; padding: 0 4px; color: {c['text']}; }}"
     )
 
 

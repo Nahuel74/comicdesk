@@ -15,6 +15,8 @@ from cbl_maker.ui.comic_list import ComicList
 from cbl_maker.ui.reading_list_panel import ReadingListPanel
 from cbl_maker.ui.cbz_metadata_panel import CbzMetadataPanel
 from cbl_maker.ui.getcomics_panel import GetComicsPanel
+from cbl_maker.ui.download_queue_panel import DownloadQueuePanel
+from cbl_maker.services.download_queue import DownloadQueueManager
 from cbl_maker.ui.theme import (
     SPACING,
     application_font,
@@ -36,7 +38,8 @@ class MainWindow(QMainWindow):
         self.reading_list_panel.dirty_changed.connect(self.setWindowModified)
         self.metadata_panel.status_message.connect(self.statusbar.showMessage)
         self.getcomics_panel.status_message.connect(self.statusbar.showMessage)
-        self.getcomics_panel.download_completed.connect(self._on_getcomics_download)
+        self.download_queue.download_completed.connect(self._on_getcomics_download)
+        self.download_queue_panel.status_message.connect(self.statusbar.showMessage)
         self.metadata_panel.metadata_saved.connect(self.comic_list.refresh_comic)
         self.metadata_panel.comic_focus_requested.connect(self.comic_list.focus_comic)
         self.metadata_panel.dirty_changed.connect(self.setWindowModified)
@@ -109,11 +112,15 @@ class MainWindow(QMainWindow):
         
         self.metadata_panel = CbzMetadataPanel(config=self.config)
         self.getcomics_panel = GetComicsPanel(config=self.config)
+        self.download_queue = DownloadQueueManager(config=self.config)
+        self.download_queue_panel = DownloadQueuePanel(self.download_queue, config=self.config)
+        self.getcomics_panel.set_download_queue(self.download_queue)
         self.tabs = QTabWidget()
         self.tabs.setObjectName("mainTabs")
         self.tabs.addTab(splitter, "Workspace")
         self.tabs.addTab(self.metadata_panel, "Metadata")
         self.tabs.addTab(self.getcomics_panel, "GetComics")
+        self.tabs.addTab(self.download_queue_panel, "Downloads")
         workspace_layout.addWidget(self.tabs, 1)
         self.splitter = splitter
         self.setCentralWidget(workspace)
@@ -134,6 +141,7 @@ class MainWindow(QMainWindow):
             self.reading_list_panel,
             self.metadata_panel,
             self.getcomics_panel,
+            self.download_queue_panel,
         ):
             widget.apply_theme(theme)
 
@@ -205,6 +213,7 @@ class MainWindow(QMainWindow):
             self.reading_list_panel.config = self.config
             self.metadata_panel.set_config(self.config)
             self.getcomics_panel.set_config(self.config)
+            self.download_queue_panel.set_config(self.config)
             self.folder_panel.set_default_folder(self.config.default_folder)
             self._apply_theme()
             self.statusbar.showMessage("Settings saved")
@@ -248,4 +257,5 @@ class MainWindow(QMainWindow):
         self.reading_list_panel.shutdown_workers()
         self.metadata_panel.shutdown_workers()
         self.getcomics_panel.shutdown_workers()
+        self.download_queue_panel.shutdown_workers()
         super().closeEvent(event)

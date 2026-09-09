@@ -316,7 +316,7 @@ def _parse_issue_page(html: str, url: str = "") -> GetComicsIssue:
     date_el = soup.select_one("time, .post-date, .entry-date")
     date = date_el.get_text(strip=True) if date_el else ""
 
-    excerpt_el = soup.select_one(".entry-content p, .post-content p")
+    excerpt_el = soup.select_one(".entry-summary, .excerpt, .entry-content p, .post-content p")
     excerpt = excerpt_el.get_text(" ", strip=True) if excerpt_el else ""
 
     thumbnail_url = _find_issue_thumbnail(soup)
@@ -573,9 +573,15 @@ class GetComicsClient:
         return current
 
     def pick_auto_download_link(
-        self, links: list[GetComicsDownloadLink]
+        self,
+        links: list[GetComicsDownloadLink],
+        *,
+        exclude_urls: set[str] | None = None,
     ) -> GetComicsDownloadLink | None:
-        auto_links = [link for link in links if classify_link(link)]
+        skipped = exclude_urls or set()
+        auto_links = [
+            link for link in links if classify_link(link) and link.url not in skipped
+        ]
         logger.info(
             "getcomics_pick_link_started total_links=%d auto_candidates=%d",
             len(links),

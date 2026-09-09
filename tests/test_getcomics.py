@@ -26,6 +26,19 @@ def test_parse_search_results():
     assert results[0].title == "The Amazing Spider-Man #001 (2024)"
     assert results[0].url.endswith("/spider-man-001-2024/")
     assert results[0].date == "March 1, 2024"
+    assert results[0].excerpt == "Peter Parker returns in a new adventure."
+
+
+def test_parse_issue_page_entry_summary_excerpt():
+    html = """
+    <html><body><article>
+      <h1 class="post-title">Batman #001 (2020)</h1>
+      <div class="entry-summary">Only in entry-summary, no content paragraph.</div>
+      <a href="https://getcomics.org/dls/main/">MAIN SERVER</a>
+    </article></body></html>
+    """
+    issue = _parse_issue_page(html)
+    assert issue.excerpt == "Only in entry-summary, no content paragraph."
 
 
 def test_parse_issue_page():
@@ -35,6 +48,7 @@ def test_parse_issue_page():
     assert issue.series_name == "The Amazing Spider-Man"
     assert issue.issue_number == "1"
     assert issue.year == "2024"
+    assert issue.excerpt == "Peter Parker returns in a brand new series from Marvel Comics."
     assert issue.thumbnail_url.endswith("spider-cover-og.jpg")
     assert len(issue.download_links) == 4
     providers = {link.provider for link in issue.download_links}
@@ -130,3 +144,18 @@ def test_pick_auto_download_link_prefers_resolvable_main_server():
     picked = client.pick_auto_download_link(links)
     assert picked is not None
     assert picked.provider == "MAIN SERVER"
+
+
+def test_pick_auto_download_link_skips_excluded_urls():
+    client = GetComicsClient()
+    main = GetComicsDownloadLink("MAIN SERVER", "MAIN SERVER", "https://getcomics.org/dls/main/")
+    mirror = GetComicsDownloadLink("MIRROR", "MIRROR", "https://getcomics.org/dls/mirror/")
+    client.resolve_redirect = MagicMock(
+        return_value="https://getcomics.org/files/book.cbz"
+    )
+    picked = client.pick_auto_download_link(
+        [main, mirror],
+        exclude_urls={main.url},
+    )
+    assert picked is not None
+    assert picked.provider == "MIRROR"

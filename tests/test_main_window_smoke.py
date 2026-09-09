@@ -20,18 +20,20 @@ def qapp():
 
 
 def test_main_window_builds_offscreen(qapp):
-    """MainWindow exposes all three workspace panels and core actions."""
+    """MainWindow exposes all workspace panels and core tabs."""
     window = MainWindow()
 
     assert window.splitter.count() == 3
     assert window.folder_panel is window.splitter.widget(0)
     assert window.comic_list is window.splitter.widget(1)
     assert window.reading_list_panel is window.splitter.widget(2)
-    assert window.tabs.count() == 3
+    assert window.tabs.count() == 4
     assert window.tabs.tabText(1) == "Metadata"
     assert window.tabs.tabText(2) == "GetComics"
+    assert window.tabs.tabText(3) == "Downloads"
     assert window.metadata_panel is window.tabs.widget(1)
     assert window.getcomics_panel is window.tabs.widget(2)
+    assert window.download_queue_panel is window.tabs.widget(3)
     assert window.menuBar().actions()
     # A configured existing default folder starts scanning during construction;
     # that status is real feedback and must not be suppressed for the smoke test.
