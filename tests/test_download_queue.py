@@ -9,10 +9,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from cbl_maker.config import Config
-from cbl_maker.models import Comic
-from cbl_maker.services.download_queue import DownloadQueueManager, DownloadStatus
-from cbl_maker.services.getcomics import GetComicsDownloadLink, GetComicsIssue
+from comicdesk.config import Config
+from comicdesk.models import Comic
+from comicdesk.services.download_queue import DownloadQueueManager, DownloadStatus
+from comicdesk.services.getcomics import GetComicsDownloadLink, GetComicsIssue
 
 
 @pytest.fixture
@@ -75,7 +75,7 @@ def test_sequential_processing_on_finish(qapp, tmp_path):
     issue2 = _make_issue("Second")
     comic = Comic(Path("first.cbz"))
 
-    with patch("cbl_maker.services.download_queue.GetComicsDownloadWorker") as worker_cls:
+    with patch("comicdesk.services.download_queue.GetComicsDownloadWorker") as worker_cls:
         worker1 = MagicMock()
         worker1.isRunning.return_value = True
         worker_cls.return_value = worker1
@@ -99,7 +99,7 @@ def test_manual_links_pauses_queue(qapp, tmp_path):
         GetComicsDownloadLink("MEGA", "MEGA", "https://getcomics.org/dls/mega/"),
     ]
 
-    with patch("cbl_maker.services.download_queue.GetComicsDownloadWorker") as worker_cls:
+    with patch("comicdesk.services.download_queue.GetComicsDownloadWorker") as worker_cls:
         worker = MagicMock()
         worker_cls.return_value = worker
         item_id = manager.enqueue(_make_issue(), tmp_path)
@@ -121,7 +121,7 @@ def test_resolve_manual_resumes_queue(qapp, tmp_path):
     link = GetComicsDownloadLink("MAIN SERVER", "MAIN SERVER", "https://getcomics.org/dls/main/")
 
     with patch.object(manager, "_start_item") as start_item:
-        with patch("cbl_maker.services.download_queue.GetComicsDownloadWorker"):
+        with patch("comicdesk.services.download_queue.GetComicsDownloadWorker"):
             item_id = manager.enqueue(_make_issue(), tmp_path)
         item = manager.get_item(item_id)
         item.status = DownloadStatus.NEEDS_ATTENTION

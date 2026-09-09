@@ -9,9 +9,9 @@ import pytest
 from PySide6.QtCore import QItemSelection, QItemSelectionModel
 from PySide6.QtWidgets import QAbstractItemView, QApplication
 
-from cbl_maker.models import Comic
-from cbl_maker.ui.comic_list import ComicList
-from cbl_maker.ui.comic_selection import ComicSelection
+from comicdesk.models import Comic
+from comicdesk.ui.comic_list import ComicList
+from comicdesk.ui.comic_selection import ComicSelection
 
 
 @pytest.fixture

@@ -2,8 +2,8 @@
 
 import json
 
-import cbl_maker.config as config_module
-from cbl_maker.config import Config, normalize_theme
+import comicdesk.config as config_module
+from comicdesk.config import Config, normalize_theme
 
 
 def test_load_ignores_unknown_json_keys(tmp_path, monkeypatch):
@@ -69,3 +69,22 @@ def test_save_includes_theme(tmp_path, monkeypatch):
 def test_normalize_theme_helper():
     assert normalize_theme("light") == "light"
     assert normalize_theme("unknown") == "dark"
+
+
+def test_migrates_legacy_config_dir(tmp_path, monkeypatch):
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir()
+    (legacy_dir / "config.json").write_text(
+        json.dumps({"api_key": "legacy-key"}),
+        encoding="utf-8",
+    )
+    new_dir = tmp_path / "comicdesk"
+
+    monkeypatch.setattr(config_module, "OLD_CONFIG_DIR", legacy_dir)
+    monkeypatch.setattr(config_module, "CONFIG_DIR", new_dir)
+    monkeypatch.setattr(config_module, "CONFIG_FILE", new_dir / "config.json")
+
+    config = Config.load()
+
+    assert new_dir.exists()
+    assert config.api_key == "legacy-key"

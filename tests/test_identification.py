@@ -3,8 +3,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from cbl_maker.models import Comic, ComicVineIssue
-from cbl_maker.services.identification import (
+from comicdesk.models import Comic, ComicVineIssue
+from comicdesk.services.identification import (
     STATUS_CANDIDATES,
     STATUS_EMPTY,
     STATUS_EXACT,

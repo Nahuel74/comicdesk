@@ -8,9 +8,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication
 
-import cbl_maker.config as config_module
-from cbl_maker.ui.main_window import MainWindow
-from cbl_maker.ui.theme import colors_for
+import comicdesk.config as config_module
+from comicdesk.ui.main_window import MainWindow
+from comicdesk.ui.theme import colors_for
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def test_main_window_builds_offscreen(qapp):
 def test_main_window_focuses_comic_in_metadata_tab(qapp):
     window = MainWindow()
     from pathlib import Path
-    from cbl_maker.models import Comic
+    from comicdesk.models import Comic
 
     comic = Comic(Path("book.cbz"), title="Book")
     window._on_comic_focused(comic)

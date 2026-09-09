@@ -3,7 +3,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-from cbl_maker.services.comicvine_api import (
+from comicdesk.services.comicvine_api import (
     ComicVineClient,
     InvalidAPIKeyError,
     RateLimitError
@@ -19,7 +19,7 @@ def client():
 class TestComicVineClient:
     """Tests for ComicVineClient."""
 
-    @patch("cbl_maker.services.comicvine_api.httpx.Client")
+    @patch("comicdesk.services.comicvine_api.httpx.Client")
     def test_get_issue_success(self, mock_client_cls, client):
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -41,7 +41,7 @@ class TestComicVineClient:
         assert issue.series_id == "23227"
         assert issue.series_name == "Doctor Strange"
 
-    @patch("cbl_maker.services.comicvine_api.httpx.Client")
+    @patch("comicdesk.services.comicvine_api.httpx.Client")
     def test_invalid_api_key(self, mock_client_cls, client):
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -64,7 +64,7 @@ class TestComicVineClient:
         client._last_request_time = time.time() - 2
         client._rate_limit()  # Should not block
 
-    @patch("cbl_maker.services.comicvine_api.httpx.Client")
+    @patch("comicdesk.services.comicvine_api.httpx.Client")
     def test_get_issue_parses_store_date(self, mock_client_cls, client):
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -86,7 +86,7 @@ class TestComicVineClient:
         assert issue.cover_date == "2026-01-01"
         assert issue.store_date == "2025-11-12"
 
-    @patch("cbl_maker.services.comicvine_api.httpx.Client")
+    @patch("comicdesk.services.comicvine_api.httpx.Client")
     def test_get_issue_store_date_defaults_to_empty(self, mock_client_cls, client):
         mock_response = MagicMock()
         mock_response.json.return_value = {
@@ -106,9 +106,9 @@ class TestComicVineClient:
 
         assert issue.store_date == ""
 
-    @patch("cbl_maker.services.comicvine_api.httpx.Client")
+    @patch("comicdesk.services.comicvine_api.httpx.Client")
     def test_invalid_json_is_reported_as_api_error(self, mock_client_cls, client):
-        from cbl_maker.services.comicvine_api import ComicVineError
+        from comicdesk.services.comicvine_api import ComicVineError
 
         mock_response = MagicMock()
         mock_response.raise_for_status = MagicMock()

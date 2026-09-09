@@ -6,10 +6,10 @@ import stat
 
 import pytest
 
-from cbl_maker.models import Comic
-from cbl_maker.services.cbz_reader import read_cbz_metadata
-from cbl_maker.services import cbz_writer
-from cbl_maker.services.cbz_writer import CbzWriteError, write_cbz_metadata
+from comicdesk.models import Comic
+from comicdesk.services.cbz_reader import read_cbz_metadata
+from comicdesk.services import cbz_writer
+from comicdesk.services.cbz_writer import CbzWriteError, write_cbz_metadata
 
 
 def _make_cbz(path, xml=b"<ComicInfo />", member="page.jpg"):

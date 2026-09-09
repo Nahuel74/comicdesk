@@ -1,7 +1,7 @@
 """Tests for theme tokens and stylesheet builders."""
 
-from cbl_maker.config import normalize_theme
-from cbl_maker.ui.theme import (
+from comicdesk.config import normalize_theme
+from comicdesk.ui.theme import (
     application_stylesheet,
     colors_for,
     dialog_stylesheet,

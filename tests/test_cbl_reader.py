@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from cbl_maker.models import Comic, ComicVineIssue
-from cbl_maker.services.cbl_reader import (
+from comicdesk.models import Comic, ComicVineIssue
+from comicdesk.services.cbl_reader import (
     CBLParseError,
     MAX_CBL_BYTES,
     MAX_CBL_DEPTH,
@@ -106,9 +106,9 @@ def test_cv_issue_match_requires_matching_series_when_both_are_available():
 def test_reconciliation_fills_missing_ids_and_metadata_only():
     metadata = ComicVineIssue("20", "10", "Saga", "1", "2", "2020-01-01", "url")
     xml = """<ReadingList><Book><Database Name="cv" Series="10" Issue="20" />
-    <cblmaker:ComicVineMetadata xmlns:cblmaker="https://cbl-maker.dev/xml/metadata" version="1">
-      <cblmaker:Id>20</cblmaker:Id><cblmaker:SeriesId>10</cblmaker:SeriesId>
-    </cblmaker:ComicVineMetadata></Book></ReadingList>"""
+    <comicdesk:ComicVineMetadata xmlns:comicdesk="https://comicdesk.dev/xml/metadata" version="1">
+      <comicdesk:Id>20</comicdesk:Id><comicdesk:SeriesId>10</comicdesk:SeriesId>
+    </comicdesk:ComicVineMetadata></Book></ReadingList>"""
     comic = Comic(Path("issue.cbz"), cv_issue_id="20")
     result = reconcile_cbl(read_cbl(xml), [comic])
     assert result.matches == [comic]
@@ -119,10 +119,10 @@ def test_reconciliation_fills_missing_ids_and_metadata_only():
 
 
 def test_reconciliation_preserves_existing_ids_and_metadata():
-    cbl_metadata = """<cblmaker:ComicVineMetadata
-      xmlns:cblmaker="https://cbl-maker.dev/xml/metadata" version="1">
-      <cblmaker:Id>20</cblmaker:Id><cblmaker:SeriesId>10</cblmaker:SeriesId>
-    </cblmaker:ComicVineMetadata>"""
+    cbl_metadata = """<comicdesk:ComicVineMetadata
+      xmlns:comicdesk="https://comicdesk.dev/xml/metadata" version="1">
+      <comicdesk:Id>20</comicdesk:Id><comicdesk:SeriesId>10</comicdesk:SeriesId>
+    </comicdesk:ComicVineMetadata>"""
     xml = f"""<ReadingList><Book SeriesName="Saga" Volume="1" Issue="2">
     <Database Name="cv" Series="10" Issue="20" />
     {cbl_metadata}</Book></ReadingList>"""
@@ -136,3 +136,14 @@ def test_reconciliation_preserves_existing_ids_and_metadata():
     assert comic.cv_issue_id == "local-issue"
     assert comic.cv_series_id == "local-series"
     assert comic.cv_metadata is local_metadata
+
+
+def test_reads_legacy_cbl_maker_namespace():
+    xml = """<ReadingList><Book><Database Name="cv" Series="10" Issue="20" />
+    <cblmaker:ComicVineMetadata xmlns:cblmaker="https://cbl-maker.dev/xml/metadata" version="1">
+      <cblmaker:Id>20</cblmaker:Id><cblmaker:SeriesId>10</cblmaker:SeriesId>
+    </cblmaker:ComicVineMetadata></Book></ReadingList>"""
+    document = read_cbl(xml)
+    assert document.books[0].cv_metadata is not None
+    assert document.books[0].cv_metadata.id == "20"
+    assert document.books[0].cv_metadata.series_id == "10"

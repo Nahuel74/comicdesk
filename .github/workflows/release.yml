@@ -26,11 +26,11 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact: cbl-maker
-            asset: cbl-maker-linux
+            artifact: comicdesk
+            asset: comicdesk-linux
           - os: windows-latest
-            artifact: cbl-maker.exe
-            asset: cbl-maker-windows.exe
+            artifact: comicdesk.exe
+            asset: comicdesk-windows.exe
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -39,16 +39,16 @@ jobs:
           python-version: '3.14'
       - run: pip install -r requirements.txt pyinstaller
       - name: Build
-        run: pyinstaller packaging/cbl-maker.spec --clean --noconfirm
+        run: pyinstaller packaging/comicdesk.spec --clean --noconfirm
       - name: Verify binary
         shell: bash
         run: |
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            test -f dist/cbl-maker.exe
-            echo "Binary size: $(du -h dist/cbl-maker.exe | cut -f1)"
+            test -f dist/comicdesk.exe
+            echo "Binary size: $(du -h dist/comicdesk.exe | cut -f1)"
           else
-            test -f dist/cbl-maker
-            echo "Binary size: $(du -h dist/cbl-maker | cut -f1)"
+            test -f dist/comicdesk
+            echo "Binary size: $(du -h dist/comicdesk | cut -f1)"
           fi
       - uses: actions/upload-artifact@v4
         with:
@@ -68,13 +68,13 @@ jobs:
         shell: bash
         run: |
           cd artifacts
-          tar czf cbl-maker-linux.tar.gz cbl-maker-linux/
-          mv cbl-maker-windows.exe/cbl-maker.exe ./cbl-maker-windows.exe.tmp
-          rm -rf cbl-maker-linux/ cbl-maker-windows.exe/
-          mv cbl-maker-windows.exe.tmp cbl-maker-windows.exe
+          tar czf comicdesk-linux.tar.gz comicdesk-linux/
+          mv comicdesk-windows.exe/comicdesk.exe ./comicdesk-windows.exe.tmp
+          rm -rf comicdesk-linux/ comicdesk-windows.exe/
+          mv comicdesk-windows.exe.tmp comicdesk-windows.exe
       - uses: softprops/action-gh-release@v2
         with:
           body_path: CHANGELOG.md
           files: |
-            artifacts/cbl-maker-linux.tar.gz
-            artifacts/cbl-maker-windows.exe
+            artifacts/comicdesk-linux.tar.gz
+            artifacts/comicdesk-windows.exe

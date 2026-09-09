@@ -14,7 +14,7 @@ def qapp():
 
 
 def test_folder_tree_sorting_enabled(qapp):
-    from cbl_maker.ui.folder_panel import FolderPanel
+    from comicdesk.ui.folder_panel import FolderPanel
 
     panel = FolderPanel()
     try:

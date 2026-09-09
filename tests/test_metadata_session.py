@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from cbl_maker.models import Comic, ComicVineIssue, ComicVineVolume
-from cbl_maker.services.metadata_session import MetadataSession
+from comicdesk.models import Comic, ComicVineIssue, ComicVineVolume
+from comicdesk.services.metadata_session import MetadataSession
 
 
 def _issue():

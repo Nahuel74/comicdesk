@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 import pytest
 
-from cbl_maker.services.cbz_reader import read_cbz_metadata, scan_folder
+from comicdesk.services.cbz_reader import read_cbz_metadata, scan_folder
 
 
 SAMPLE_XML = """<?xml version="1.0" encoding="utf-8"?>

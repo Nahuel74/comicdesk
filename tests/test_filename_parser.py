@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from cbl_maker.utils.filename_parser import ParsedFilename, parse_comic_filename
+from comicdesk.utils.filename_parser import ParsedFilename, parse_comic_filename
 
 
 def test_parses_series_issue_volume_and_year_from_common_filename():

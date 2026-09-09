@@ -9,8 +9,8 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from cbl_maker.models import Comic, ReadingList
-from cbl_maker.ui.comic_table_model import ComicFilterProxyModel, ComicTableModel
+from comicdesk.models import Comic, ReadingList
+from comicdesk.ui.comic_table_model import ComicFilterProxyModel, ComicTableModel
 
 
 @pytest.fixture

@@ -7,8 +7,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from cbl_maker.config import Config
-from cbl_maker.ui.config_dialog import ConfigDialog
+from comicdesk.config import Config
+from comicdesk.ui.config_dialog import ConfigDialog
 
 
 @pytest.fixture

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from cbl_maker.models import Comic, ComicVineMetadata
+from comicdesk.models import Comic, ComicVineMetadata
 
 
 def test_new_comic_has_no_comicvine_metadata():

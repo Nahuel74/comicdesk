@@ -3,9 +3,9 @@
 import pytest
 from pathlib import Path
 
-from cbl_maker.models import ComicVineIssue, ReadingList, Comic
-from cbl_maker.services.cbl_reader import read_cbl
-from cbl_maker.services.cbl_writer import generate_cbl, save_cbl
+from comicdesk.models import ComicVineIssue, ReadingList, Comic
+from comicdesk.services.cbl_reader import read_cbl
+from comicdesk.services.cbl_writer import generate_cbl, save_cbl
 
 
 @pytest.fixture
@@ -132,6 +132,20 @@ class TestGenerateCbl:
         assert document.books[0].cv_series_id == "10"
         assert document.books[0].cv_issue_id == "20"
         assert document.books[0].cv_metadata == metadata
+
+    def test_writes_comicdesk_namespace(self):
+        metadata = ComicVineIssue("20", "10", "Saga", "1", "2", "2020-01-01", "url")
+        comic = Comic(
+            path=Path("/local/saga.cbz"),
+            cv_series_id="10",
+            cv_issue_id="20",
+            cv_metadata=metadata,
+        )
+
+        xml = generate_cbl(ReadingList("Saga", [comic]))
+
+        assert "https://comicdesk.dev/xml/metadata" in xml
+        assert "https://cbl-maker.dev/xml/metadata" not in xml
 
 
 class TestSaveCbl:

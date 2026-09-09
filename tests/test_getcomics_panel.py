@@ -9,13 +9,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from cbl_maker.config import Config
-from cbl_maker.models import CBLBook
-from cbl_maker.services.download_queue import DownloadQueueManager
-from cbl_maker.services.getcomics import GetComicsDownloadLink, GetComicsIssue
-from cbl_maker.services.wishlist import WishlistManager
-from cbl_maker.ui.getcomics_panel import DownloadLinksDialog, GetComicsPanel
-from cbl_maker.ui.getcomics_workers import GetComicsIssueWorker
+from comicdesk.config import Config
+from comicdesk.models import CBLBook
+from comicdesk.services.download_queue import DownloadQueueManager
+from comicdesk.services.getcomics import GetComicsDownloadLink, GetComicsIssue
+from comicdesk.services.wishlist import WishlistManager
+from comicdesk.ui.getcomics_panel import DownloadLinksDialog, GetComicsPanel
+from comicdesk.ui.getcomics_workers import GetComicsIssueWorker
 
 
 @pytest.fixture

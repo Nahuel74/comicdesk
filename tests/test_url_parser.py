@@ -1,7 +1,7 @@
 """Tests for URL parser module."""
 
 import pytest
-from cbl_maker.utils.url_parser import extract_comicvine_ids, extract_all_cv_ids
+from comicdesk.utils.url_parser import extract_comicvine_ids, extract_all_cv_ids
 
 
 class TestExtractComicvineIds:

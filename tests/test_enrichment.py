@@ -4,8 +4,8 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from cbl_maker.models import Comic, ComicVineIssue
-from cbl_maker.ui.comic_list import EnrichWorker
+from comicdesk.models import Comic, ComicVineIssue
+from comicdesk.ui.comic_list import EnrichWorker
 
 
 def _make_comic(**kwargs) -> Comic:
@@ -50,7 +50,7 @@ class TestEnrichWorker:
         worker.run()
         return worker
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_with_issue_id_fetches_series(self, mock_client_cls):
         """Comic with cv_issue_id should fetch series_id via get_issue."""
         mock_client = MagicMock()
@@ -66,7 +66,7 @@ class TestEnrichWorker:
         assert comic.series_name == "Doctor Strange"
         mock_client.get_issue.assert_called_once_with("139720")
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_with_url_parse_then_fetch(self, mock_client_cls):
         """Comic with web_link but no IDs should parse URL then fetch issue."""
         mock_client = MagicMock()
@@ -84,7 +84,7 @@ class TestEnrichWorker:
         assert comic.cv_series_id == "23227"
         mock_client.get_issue.assert_called_once_with("139720")
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_search_by_title_and_issue(self, mock_client_cls):
         """Comic with no IDs should search by title + issue number."""
         mock_client = MagicMock()
@@ -100,7 +100,7 @@ class TestEnrichWorker:
         assert comic.cv_series_id == "600"
         mock_client.search_issue.assert_called_once_with("Batman #1")
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_skips_comic_with_both_ids(self, mock_client_cls):
         """Comic with both IDs should be skipped."""
         mock_client = MagicMock()
@@ -112,7 +112,7 @@ class TestEnrichWorker:
         mock_client.get_issue.assert_not_called()
         mock_client.search_issue.assert_not_called()
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_fills_missing_metadata(self, mock_client_cls):
         """Enrichment should persist all missing normalized issue metadata."""
         mock_client = MagicMock()
@@ -134,7 +134,7 @@ class TestEnrichWorker:
             "https://comicvine.gamespot.com/test/4000-999/"
         ]
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_does_not_overwrite_existing_fields(self, mock_client_cls):
         """Enrichment should NOT overwrite manual fields or links."""
         mock_client = MagicMock()
@@ -166,7 +166,7 @@ class TestEnrichWorker:
             "https://comicvine.gamespot.com/test/4000-999/",
         ]
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_skips_already_enriched_issue(self, mock_client_cls):
         """A comic with both Comic Vine IDs must not trigger another lookup."""
         mock_client = MagicMock()
@@ -185,7 +185,7 @@ class TestEnrichWorker:
         assert comic.series_name == "Persisted Series"
         assert comic.year == "2019"
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_handles_no_search_results(self, mock_client_cls):
         """Enrichment should handle empty search results gracefully."""
         mock_client = MagicMock()
@@ -198,10 +198,10 @@ class TestEnrichWorker:
         assert comic.cv_issue_id is None
         assert comic.cv_series_id is None
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_handles_api_error(self, mock_client_cls):
         """Enrichment should handle ComicVineError without crashing."""
-        from cbl_maker.services.comicvine_api import ComicVineError
+        from comicdesk.services.comicvine_api import ComicVineError
 
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -214,7 +214,7 @@ class TestEnrichWorker:
         # comic should remain unchanged
         assert comic.cv_series_id is None
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_cancellation(self, mock_client_cls):
         """Enrichment should stop when cancelled."""
         mock_client = MagicMock()
@@ -241,7 +241,7 @@ class TestEnrichWorker:
         # Should not have processed all comics
         assert call_count < 10
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_search_hydrates_before_applying(self, mock_client_cls):
         """Search results must be hydrated via get_issue before applying."""
         mock_client = MagicMock()
@@ -263,10 +263,10 @@ class TestEnrichWorker:
         assert comic.cv_issue_id == "500"
         assert comic.cv_series_id == "600"
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_search_falls_back_to_partial_on_hydration_failure(self, mock_client_cls):
         """If hydration fails, the partial search result should still be applied."""
-        from cbl_maker.services.comicvine_api import ComicVineError
+        from comicdesk.services.comicvine_api import ComicVineError
 
         mock_client = MagicMock()
         mock_client_cls.return_value = mock_client
@@ -280,7 +280,7 @@ class TestEnrichWorker:
         assert comic.cv_issue_id == "500"
         assert comic.cv_series_id == "600"
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_search_no_series_name_skips(self, mock_client_cls):
         """Comic with no series_name and no IDs should be skipped (no search possible)."""
         mock_client = MagicMock()
@@ -292,7 +292,7 @@ class TestEnrichWorker:
         mock_client.search_issue.assert_not_called()
         mock_client.get_issue.assert_not_called()
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_uses_store_date_for_date_fields(self, mock_client_cls):
         """Enrichment should use store_date when available instead of cover_date."""
         mock_client = MagicMock()
@@ -310,7 +310,7 @@ class TestEnrichWorker:
         assert comic.month == "11"
         assert comic.day == "12"
 
-    @patch("cbl_maker.ui.comic_list.ComicVineClient")
+    @patch("comicdesk.ui.comic_list.ComicVineClient")
     def test_enrich_falls_back_to_cover_date_when_store_date_empty(self, mock_client_cls):
         """Enrichment should use cover_date when store_date is empty."""
         mock_client = MagicMock()

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from cbl_maker.models import Comic, ReadingList
+from comicdesk.models import Comic, ReadingList
 
 
 def comic(name, **kwargs):

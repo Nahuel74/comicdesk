@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.0] - 2026-09-09
+
+### Changed
+
+- Rebranded from CBL Maker to **ComicDesk** across the entire project
+- Python package renamed from `cbl_maker` to `comicdesk`
+- Config directory moved to `~/.config/comicdesk/` with automatic migration from `~/.config/cbl-maker/`
+- Release binaries renamed to `comicdesk` / `comicdesk.exe`
+- CBL exports now use the `https://comicdesk.dev/xml/metadata` namespace (legacy namespace still supported on import)
+- README and AGENTS.md synchronized with all current features (GetComics, wishlist, download queue, themes)
+
 ## [1.3.0] - 2026-09-09
 
 ### Added
@@ -49,7 +60,7 @@
 
 ## [1.0.0] - 2026-09-03
 
-First stable release of CBL Maker.
+First stable release of ComicDesk.
 
 ### Added
 
@@ -60,7 +71,7 @@ First stable release of CBL Maker.
 - CBL reading list import and export (ComicRack format)
 - Dedicated metadata editor tab with transactional editing (snapshot/commit/discard)
 - Sort controls for reading lists (by name, issue number, or manual order)
-- Persistent configuration at `~/.config/cbl-maker/config.json`
+- Persistent configuration at `~/.config/comicdesk/config.json`
 - PyInstaller packaging for Linux and Windows single-file executables
 - GitHub Actions CI/CD pipeline for automated testing and releases
 

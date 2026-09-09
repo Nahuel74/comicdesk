@@ -1,4 +1,4 @@
-"""Entry point for CBL Maker application."""
+"""Entry point for ComicDesk application."""
 
 import sys
 import logging
@@ -11,9 +11,9 @@ logging.basicConfig(
 )
 
 # Enable debug only for our app
-logging.getLogger("cbl_maker").setLevel(logging.INFO)
+logging.getLogger("comicdesk").setLevel(logging.INFO)
 
-from cbl_maker.app import run
+from comicdesk.app import run
 
 
 if __name__ == "__main__":

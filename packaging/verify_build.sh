@@ -5,13 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 DIST="$ROOT_DIR/dist"
 
-echo "=== CBL Maker — Build Verification ==="
+echo "=== ComicDesk — Build Verification ==="
 
 ERRORS=0
 
 # Check binary exists
-if [ -f "$DIST/cbl-maker" ]; then
-    SIZE=$(stat --format=%s "$DIST/cbl-maker" 2>/dev/null || stat -f%z "$DIST/cbl-maker")
+if [ -f "$DIST/comicdesk" ]; then
+    SIZE=$(stat --format=%s "$DIST/comicdesk" 2>/dev/null || stat -f%z "$DIST/comicdesk")
     SIZE_MB=$((SIZE / 1024 / 1024))
     echo "[OK] Linux binary: $SIZE_MB MB"
 
@@ -20,13 +20,13 @@ if [ -f "$DIST/cbl-maker" ]; then
         ERRORS=$((ERRORS + 1))
     fi
 else
-    echo "[FAIL] dist/cbl-maker not found"
+    echo "[FAIL] dist/comicdesk not found"
     ERRORS=$((ERRORS + 1))
 fi
 
 # Check executable permission
-if [ -f "$DIST/cbl-maker" ] && [ ! -x "$DIST/cbl-maker" ]; then
-    echo "[WARN] dist/cbl-maker is not executable"
+if [ -f "$DIST/comicdesk" ] && [ ! -x "$DIST/comicdesk" ]; then
+    echo "[WARN] dist/comicdesk is not executable"
     ERRORS=$((ERRORS + 1))
 fi
 

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from cbl_maker.models import Comic, ComicVineIssue, ComicVineVolume
-from cbl_maker.services.comicvine_mapping import apply_issue_metadata, apply_volume_metadata
+from comicdesk.models import Comic, ComicVineIssue, ComicVineVolume
+from comicdesk.services.comicvine_mapping import apply_issue_metadata, apply_volume_metadata
 
 
 def test_issue_mapping_separates_roles_and_entities():

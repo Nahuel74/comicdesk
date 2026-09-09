@@ -8,8 +8,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from cbl_maker.models import Comic, ComicVineIssue, ComicVineVolume
-from cbl_maker.ui.cbz_metadata_panel import CbzMetadataPanel, CHANGED_PROPERTY
+from comicdesk.models import Comic, ComicVineIssue, ComicVineVolume
+from comicdesk.ui.cbz_metadata_panel import CbzMetadataPanel, CHANGED_PROPERTY
 
 
 @pytest.fixture

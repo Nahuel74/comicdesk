@@ -1,8 +1,8 @@
 """Tests for the persistent CBL wishlist service."""
 
-from cbl_maker.models import CBLBook, Comic
-from cbl_maker.services.cbl_reader import book_dedupe_key
-from cbl_maker.services.wishlist import WishlistManager
+from comicdesk.models import CBLBook, Comic
+from comicdesk.services.cbl_reader import book_dedupe_key
+from comicdesk.services.wishlist import WishlistManager
 
 
 def test_book_dedupe_key_prefers_cv_issue():

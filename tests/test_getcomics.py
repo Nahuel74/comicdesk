@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from cbl_maker.services.getcomics import (
+from comicdesk.services.getcomics import (
     GetComicsClient,
     GetComicsDownloadLink,
     GetComicsSearchResult,
@@ -20,7 +20,7 @@ from cbl_maker.services.getcomics import (
     pick_best_search_result,
     rank_search_result,
 )
-from cbl_maker.models import CBLBook
+from comicdesk.models import CBLBook
 
 FIXTURES = Path(__file__).parent / "fixtures" / "getcomics"
 
@@ -164,7 +164,7 @@ def test_download_file_writes_atomically(tmp_path):
         def iter_bytes(self, chunk_size=262144):
             yield b"PK\x03\x04test"
 
-    with patch("cbl_maker.services.getcomics.httpx.stream", return_value=FakeStream()):
+    with patch("comicdesk.services.getcomics.httpx.stream", return_value=FakeStream()):
         path = client.download_file("https://getcomics.org/dls/test/", tmp_path)
 
     assert path.exists()

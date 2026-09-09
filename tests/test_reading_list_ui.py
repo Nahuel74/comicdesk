@@ -7,13 +7,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
-from cbl_maker.config import Config
-from cbl_maker.models import Comic
-from cbl_maker.models import CBLBook
-from cbl_maker.services.cbl_reader import CBLDocument, CBLParseError, ReconciliationResult
-from cbl_maker.services.wishlist import WishlistManager
-from cbl_maker.ui.main_window import MainWindow
-from cbl_maker.ui.reading_list_panel import ReadingListPanel
+from comicdesk.config import Config
+from comicdesk.models import Comic
+from comicdesk.models import CBLBook
+from comicdesk.services.cbl_reader import CBLDocument, CBLParseError, ReconciliationResult
+from comicdesk.services.wishlist import WishlistManager
+from comicdesk.ui.main_window import MainWindow
+from comicdesk.ui.reading_list_panel import ReadingListPanel
 
 
 @pytest.fixture
@@ -31,9 +31,9 @@ def panel(qapp):
 def _stub_import(monkeypatch, document, result, answer=QMessageBox.StandardButton.Yes,
                  path="import.cbl"):
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: (path, ""))
-    monkeypatch.setattr("cbl_maker.ui.reading_list_panel.read_cbl", lambda _path: document)
+    monkeypatch.setattr("comicdesk.ui.reading_list_panel.read_cbl", lambda _path: document)
     monkeypatch.setattr(
-        "cbl_maker.ui.reading_list_panel.reconcile_cbl",
+        "comicdesk.ui.reading_list_panel.reconcile_cbl",
         lambda _document, _comics: result,
     )
     monkeypatch.setattr(QMessageBox, "question", lambda *args: answer)
@@ -140,7 +140,7 @@ def test_export_success_clears_dirty_and_reports_status(panel, monkeypatch):
         QFileDialog, "getSaveFileName",
         lambda *args: (requested.append(args[2]) or ("/tmp/weekly.cbl", "")),
     )
-    monkeypatch.setattr("cbl_maker.ui.reading_list_panel.save_cbl", lambda *_args: None)
+    monkeypatch.setattr("comicdesk.ui.reading_list_panel.save_cbl", lambda *_args: None)
     panel.status_message.connect(messages.append)
 
     panel.export_cbl()
@@ -158,7 +158,7 @@ def test_export_filesystem_error_is_reported(panel, monkeypatch):
     def fail(*_args):
         raise PermissionError("permission denied")
 
-    monkeypatch.setattr("cbl_maker.ui.reading_list_panel.save_cbl", fail)
+    monkeypatch.setattr("comicdesk.ui.reading_list_panel.save_cbl", fail)
     panel.status_message.connect(messages.append)
 
     panel.export_cbl()
@@ -222,7 +222,7 @@ def test_import_parse_error_reports_failure_without_replacing_list(panel, monkey
     panel.status_message.connect(messages.append)
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: ("broken.cbl", ""))
     monkeypatch.setattr(
-        "cbl_maker.ui.reading_list_panel.read_cbl",
+        "comicdesk.ui.reading_list_panel.read_cbl",
         lambda _path: (_ for _ in ()).throw(CBLParseError("Invalid CBL XML")),
     )
 
@@ -444,11 +444,11 @@ def test_import_persists_selected_directory(config_panel, monkeypatch, tmp_path)
         lambda *args: (str(selected_file), ""),
     )
     monkeypatch.setattr(
-        "cbl_maker.ui.reading_list_panel.read_cbl",
+        "comicdesk.ui.reading_list_panel.read_cbl",
         lambda _path: CBLDocument("Empty", []),
     )
     monkeypatch.setattr(
-        "cbl_maker.ui.reading_list_panel.reconcile_cbl",
+        "comicdesk.ui.reading_list_panel.reconcile_cbl",
         lambda _doc, _comics: ReconciliationResult([], [], []),
     )
     monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
@@ -470,7 +470,7 @@ def test_export_persists_selected_directory(config_panel, monkeypatch, tmp_path)
         QFileDialog, "getSaveFileName",
         lambda *args: (str(selected_file), ""),
     )
-    monkeypatch.setattr("cbl_maker.ui.reading_list_panel.save_cbl", lambda *_a: None)
+    monkeypatch.setattr("comicdesk.ui.reading_list_panel.save_cbl", lambda *_a: None)
 
     config_panel.export_cbl()
 
