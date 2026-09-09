@@ -24,9 +24,11 @@ def test_main_window_builds_offscreen(qapp):
     assert window.folder_panel is window.splitter.widget(0)
     assert window.comic_list is window.splitter.widget(1)
     assert window.reading_list_panel is window.splitter.widget(2)
-    assert window.tabs.count() == 2
+    assert window.tabs.count() == 3
     assert window.tabs.tabText(1) == "Metadata"
+    assert window.tabs.tabText(2) == "GetComics"
     assert window.metadata_panel is window.tabs.widget(1)
+    assert window.getcomics_panel is window.tabs.widget(2)
     assert window.menuBar().actions()
     # A configured existing default folder starts scanning during construction;
     # that status is real feedback and must not be suppressed for the smoke test.

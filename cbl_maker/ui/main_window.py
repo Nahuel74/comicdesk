@@ -14,6 +14,7 @@ from cbl_maker.ui.folder_panel import FolderPanel
 from cbl_maker.ui.comic_list import ComicList
 from cbl_maker.ui.reading_list_panel import ReadingListPanel
 from cbl_maker.ui.cbz_metadata_panel import CbzMetadataPanel
+from cbl_maker.ui.getcomics_panel import GetComicsPanel
 from cbl_maker.ui.theme import (
     SPACING,
     application_font,
@@ -34,6 +35,8 @@ class MainWindow(QMainWindow):
         self.reading_list_panel.status_message.connect(self.statusbar.showMessage)
         self.reading_list_panel.dirty_changed.connect(self.setWindowModified)
         self.metadata_panel.status_message.connect(self.statusbar.showMessage)
+        self.getcomics_panel.status_message.connect(self.statusbar.showMessage)
+        self.getcomics_panel.download_completed.connect(self._on_getcomics_download)
         self.metadata_panel.metadata_saved.connect(self.comic_list.refresh_comic)
         self.metadata_panel.comic_focus_requested.connect(self.comic_list.focus_comic)
         self.metadata_panel.dirty_changed.connect(self.setWindowModified)
@@ -108,10 +111,12 @@ class MainWindow(QMainWindow):
         splitter.setSizes([230, 480, 320])
         
         self.metadata_panel = CbzMetadataPanel(config=self.config)
+        self.getcomics_panel = GetComicsPanel(config=self.config)
         self.tabs = QTabWidget()
         self.tabs.setObjectName("mainTabs")
         self.tabs.addTab(splitter, "Workspace")
         self.tabs.addTab(self.metadata_panel, "Metadata")
+        self.tabs.addTab(self.getcomics_panel, "GetComics")
         workspace_layout.addWidget(self.tabs, 1)
         self.splitter = splitter
         self.setCentralWidget(workspace)
@@ -183,6 +188,7 @@ class MainWindow(QMainWindow):
             self.comic_list.config = self.config
             self.reading_list_panel.config = self.config
             self.metadata_panel.set_config(self.config)
+            self.getcomics_panel.set_config(self.config)
             self.folder_panel.set_default_folder(self.config.default_folder)
             self.statusbar.showMessage("Settings saved")
 
@@ -204,9 +210,25 @@ class MainWindow(QMainWindow):
         self.metadata_panel.set_comic(comic)
         self.tabs.setCurrentWidget(self.metadata_panel)
 
+    def _on_getcomics_download(self, comic):
+        """Refresh workspace when a download lands in the active folder."""
+        comic_path = Path(comic.path)
+        active_folder = getattr(self.comic_list, "current_folder", None)
+        if active_folder and comic_path.parent == Path(active_folder):
+            self.comic_list.refresh_comic(comic)
+            self.statusbar.showMessage(f"Downloaded: {comic_path.name}")
+            return
+        download_folder = (
+            getattr(self.config, "getcomics_download_folder", "") or self.config.default_folder
+        )
+        if download_folder and comic_path.parent == Path(download_folder):
+            self.folder_panel.select_folder(comic_path.parent)
+            self.comic_list.load_folder(comic_path.parent)
+
     def closeEvent(self, event):
         """Stop background work before Qt destroys the workspace children."""
         self.comic_list.shutdown_workers()
         self.reading_list_panel.shutdown_workers()
         self.metadata_panel.shutdown_workers()
+        self.getcomics_panel.shutdown_workers()
         super().closeEvent(event)

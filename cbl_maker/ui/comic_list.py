@@ -64,6 +64,7 @@ class ComicList(QWidget):
     def __init__(self, config=None):
         super().__init__()
         self.comics = []
+        self.current_folder = None
         self.reading_list = None
         self._selection = ComicSelection()
         self.config = config
@@ -120,6 +121,7 @@ class ComicList(QWidget):
         layout.addWidget(self.status_label)
 
     def load_folder(self, path: Path):
+        self.current_folder = path
         self._stop_scan_worker()
         self.status_label.setText("Scanning...")
         self.worker = ScanWorker(path)

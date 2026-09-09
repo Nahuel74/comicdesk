@@ -264,3 +264,7 @@ class FolderPanel(QWidget):
         self._default_folder = folder
         if not self._current_path:
             self._set_initial_path()
+
+    def select_folder(self, path: Path):
+        """Navigate to a folder and emit folder_selected."""
+        self._scan_folder(path)

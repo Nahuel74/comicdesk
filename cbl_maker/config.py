@@ -20,6 +20,8 @@ class Config:
     default_folder: str = ""
     cache_enabled: bool = True
     last_cbl_directory: str = ""
+    getcomics_download_folder: str = ""
+    auto_enrich_after_download: bool = True
 
     def save(self) -> None:
         """Save config to file."""

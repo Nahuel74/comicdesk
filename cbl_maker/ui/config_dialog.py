@@ -134,6 +134,36 @@ class ConfigDialog(QDialog):
         self.cache_checkbox = QCheckBox("Enable API cache")
         self.cache_checkbox.setChecked(self.config.cache_enabled)
         form.addRow("", self.cache_checkbox)
+
+        getcomics_folder_label = QLabel("GetComics download folder:")
+        getcomics_folder_layout = QHBoxLayout()
+        self.getcomics_folder_input = QLineEdit(
+            getattr(self.config, "getcomics_download_folder", "") or self.config.default_folder
+        )
+        self.getcomics_folder_input.setPlaceholderText("Defaults to default folder when empty...")
+        getcomics_folder_btn = QPushButton("Browse...")
+        getcomics_folder_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3d3d3d;
+                color: #e0e0e0;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #4d4d4d;
+            }
+        """)
+        getcomics_folder_btn.clicked.connect(self._browse_getcomics_folder)
+        getcomics_folder_layout.addWidget(self.getcomics_folder_input)
+        getcomics_folder_layout.addWidget(getcomics_folder_btn)
+        form.addRow(getcomics_folder_label, getcomics_folder_layout)
+
+        self.auto_enrich_checkbox = QCheckBox("Auto-enrich GetComics downloads from Comic Vine")
+        self.auto_enrich_checkbox.setChecked(
+            getattr(self.config, "auto_enrich_after_download", True)
+        )
+        form.addRow("", self.auto_enrich_checkbox)
         
         layout.addLayout(form)
         
@@ -214,10 +244,20 @@ class ConfigDialog(QDialog):
         if folder:
             self.folder_input.setText(folder)
 
+    def _browse_getcomics_folder(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select GetComics Download Folder", self.getcomics_folder_input.text()
+        )
+        if folder:
+            self.getcomics_folder_input.setText(folder)
+
     def get_config(self) -> Config:
         """Get the updated configuration."""
         return Config(
             api_key=self.api_key_input.text().strip(),
             default_folder=self.folder_input.text().strip(),
-            cache_enabled=self.cache_checkbox.isChecked()
+            cache_enabled=self.cache_checkbox.isChecked(),
+            last_cbl_directory=self.config.last_cbl_directory,
+            getcomics_download_folder=self.getcomics_folder_input.text().strip(),
+            auto_enrich_after_download=self.auto_enrich_checkbox.isChecked(),
         )
