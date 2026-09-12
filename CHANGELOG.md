@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.0] - 2026-09-12
+
+### Added
+
+- App shell navigation: Library, Metadata, Lists, and Acquire (GetComics + download queue)
+- Lists **Save** (imported CBL path or export dialog) and **Apply** for automatic sort; manual reorder via row controls
+- Comic Vine API key prompts when enrichment or search requires a key
+- Collapsible library folder sidebar on Library and Metadata screens
+
+### Changed
+
+- Reading list table beside live CBL preview (resizable splitter); columns Series, Volume, Issue, Title, Release Date, and File
+- Metadata working-set table and Comic Vine right rail; Acquire screen layout refresh
+- Theme split into tokens/stylesheet package; responsive panel chrome and action bars
+
 ## [1.4.0] - 2026-09-09
 
 ### Changed
