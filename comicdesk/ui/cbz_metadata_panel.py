@@ -3,9 +3,25 @@ from __future__ import annotations
 from pathlib import Path
 import logging
 from PySide6.QtCore import QCoreApplication, Qt, Signal
-from PySide6.QtWidgets import (QFormLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QTextEdit, QVBoxLayout, QWidget,
-    QSplitter)
+from PySide6.QtWidgets import (
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QTextEdit,
+    QTableView,
+    QVBoxLayout,
+    QWidget,
+    QSplitter,
+)
+from comicdesk.ui.metadata_instance_model import MetadataInstanceModel
 from comicdesk.models import ComicVineVolume
 from comicdesk.services.comicinfo import FIELD_TAGS, join_web_links
 from comicdesk.services.identification import STATUS_CANDIDATES, STATUS_EMPTY
@@ -21,6 +37,61 @@ from comicdesk.ui.theme import (
 MULTILINE_FIELDS = {"summary", "notes", "review"}
 ID_FIELDS = (("Series ID", "cv_series_id"), ("Issue ID", "cv_issue_id"))
 CHANGED_PROPERTY = "metadataChanged"
+FIELD_LABELS = {name: label for label, name in FIELD_TAGS}
+METADATA_GROUPS = (
+    ("Identifiers", ("cv_series_id", "cv_issue_id")),
+    (
+        "Publication",
+        (
+            "title",
+            "series_name",
+            "issue_number",
+            "volume",
+            "count",
+            "alternate_series",
+            "alternate_number",
+            "alternate_count",
+            "year",
+            "month",
+            "day",
+        ),
+    ),
+    ("Story", ("story_arc", "story_arc_number", "summary", "notes", "review")),
+    (
+        "Credits",
+        (
+            "writer",
+            "penciller",
+            "inker",
+            "colorist",
+            "letterer",
+            "cover_artist",
+            "editor",
+            "translator",
+        ),
+    ),
+    (
+        "Classification",
+        (
+            "publisher",
+            "imprint",
+            "genre",
+            "tags",
+            "page_count",
+            "language_iso",
+            "format",
+            "black_and_white",
+            "manga",
+            "age_rating",
+            "community_rating",
+        ),
+    ),
+    (
+        "Universe",
+        ("characters", "teams", "locations", "main_character_or_team", "series_group"),
+    ),
+    ("Other", ("scan_information", "gtin", "web_links")),
+)
 logger = logging.getLogger(__name__)
 
 
@@ -55,60 +126,119 @@ class CbzMetadataPanel(QWidget):
     def _build_ui(self):
         self.setObjectName("cbzMetadataPanel")
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(*(SPACING["md"] for _ in range(4)))
+        outer.setContentsMargins(SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["md"])
         outer.setSpacing(SPACING["sm"])
-        heading = QHBoxLayout()
-        self.title_label = QLabel("Metadata editor")
-        heading.addWidget(self.title_label); heading.addStretch()
-        self.state_label = QLabel("No comic selected")
-        self.comicvine_status_label = self.state_label
-        heading.addWidget(self.state_label); outer.addLayout(heading)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        sidebar = QWidget()
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(0, 0, SPACING["sm"], 0)
-        sidebar_layout.addWidget(QLabel("Instances"))
+
+        self.title_label = QLabel("Selected comic")
+        self.title_label.hide()
+
+        working_set = QGroupBox("Working set — select a CBZ from the scanned folder")
+        working_layout = QVBoxLayout(working_set)
+        filter_row = QHBoxLayout()
+        self.instance_filter = QLineEdit()
+        self.instance_filter.setPlaceholderText("Filter files in folder…")
+        self.instance_filter.textChanged.connect(self._on_instance_filter_changed)
+        filter_row.addWidget(self.instance_filter, 1)
+        working_layout.addLayout(filter_row)
+
+        self.instance_model = MetadataInstanceModel(self)
+        self.instance_table = QTableView()
+        self.instance_table.setModel(self.instance_model)
+        self.instance_table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self.instance_table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self.instance_table.verticalHeader().setVisible(False)
+        header = self.instance_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for column in (1, 2, 3):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        self.instance_table.setMinimumHeight(140)
+        self.instance_table.setMaximumHeight(180)
+        self.instance_table.selectionModel().currentRowChanged.connect(self._on_instance_row_changed)
+        working_layout.addWidget(self.instance_table)
+
         self.comic_selector = ComicInstanceList()
-        self.comic_selector.setMinimumWidth(210)
-        self.comic_selector.currentItemChanged.connect(lambda *_: self._selector_changed(self.comic_selector.currentRow()))
-        sidebar_layout.addWidget(self.comic_selector)
-        splitter.addWidget(sidebar)
+        self.comic_selector.hide()
+        self.comic_selector.currentItemChanged.connect(
+            lambda *_: self._selector_changed(self.comic_selector.currentRow())
+        )
+        working_layout.addWidget(self.comic_selector)
+        outer.addWidget(working_set)
+
+        body_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         editor = QWidget()
         editor_layout = QVBoxLayout(editor)
-        editor_layout.setContentsMargins(0, 0, 0, 0)
-        self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True)
-        host = QWidget(); self.form_layout = QFormLayout(host)
-        self.form_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        self.form_layout.setSpacing(SPACING["sm"])
-        self.inputs = {}; self.field_inputs = self.inputs
-        for label, name in ID_FIELDS:
-            self._add_input(label, name)
-        for label, name in FIELD_TAGS:
-            self._add_input(label, name)
-        self.scroll.setWidget(host); editor_layout.addWidget(self.scroll, 1)
+        editor_layout.setContentsMargins(0, 0, SPACING["sm"], 0)
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        host = QWidget()
+        host_layout = QVBoxLayout(host)
+        host_layout.setSpacing(SPACING["md"])
+        self.inputs = {}
+        self.field_inputs = self.inputs
+        self.form_layout = QFormLayout()
+        default_open = {"Identifiers", "Publication"}
+        for group_title, field_names in METADATA_GROUPS:
+            group = QGroupBox(group_title)
+            group.setCheckable(True)
+            group.setChecked(group_title in default_open)
+            group.toggled.connect(lambda checked, box=group: box.setFlat(not checked))
+            group_form = QFormLayout(group)
+            group_form.setFieldGrowthPolicy(
+                QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+            )
+            group_form.setSpacing(SPACING["sm"])
+            for name in field_names:
+                if name in ("cv_series_id", "cv_issue_id"):
+                    label = next(lbl for lbl, fld in ID_FIELDS if fld == name)
+                else:
+                    label = FIELD_LABELS.get(name, name)
+                self._add_input(label, name, group_form)
+            host_layout.addWidget(group)
+        self.scroll.setWidget(host)
+        editor_layout.addWidget(self.scroll, 1)
+        body_splitter.addWidget(editor)
 
-        self.proposals_label = QLabel("Comic Vine proposals")
-        editor_layout.addWidget(self.proposals_label)
-        self.candidates_list = QListWidget(); self.candidate_list = self.candidates_list
-        self.candidates_list.setMinimumHeight(90)
+        cv_panel = QGroupBox("Comic Vine")
+        cv_layout = QVBoxLayout(cv_panel)
+        cv_layout.setSpacing(SPACING["sm"])
+        self.state_label = QLabel("No comic selected")
+        self.comicvine_status_label = self.state_label
+        self.state_label.setWordWrap(True)
+        cv_layout.addWidget(self.state_label)
+        self.proposals_label = QLabel("Proposals")
+        cv_layout.addWidget(self.proposals_label)
+        self.candidates_list = QListWidget()
+        self.candidate_list = self.candidates_list
+        self.candidates_list.setMinimumHeight(160)
         self.candidates_list.itemSelectionChanged.connect(self._candidate_selected)
-        editor_layout.addWidget(self.candidates_list)
-        self.status_label = QLabel(""); self.status_label.setWordWrap(True)
-        editor_layout.addWidget(self.status_label)
-        actions = QHBoxLayout()
-        self.search_button = self._button("Search", self.search); self.search_btn = self.search_button
-        self.apply_button = self._button("Apply", self.apply_proposal); self.apply_btn = self.apply_button
-        self.discard_button = self._button("Discard", self.discard); self.discard_btn = self.discard_button
-        self.save_button = self._button("Save", self.save); self.save_btn = self.save_button
-        for button in (self.search_button, self.apply_button,
-                       self.discard_button, self.save_button):
-            actions.addWidget(button)
-        editor_layout.addLayout(actions)
-        splitter.addWidget(editor)
-        splitter.setStretchFactor(0, 0); splitter.setStretchFactor(1, 1)
-        splitter.setSizes([240, 760])
-        outer.addWidget(splitter, 1)
+        cv_layout.addWidget(self.candidates_list, 1)
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        cv_layout.addWidget(self.status_label)
+        self.search_button = self._button("1. Search", self.search)
+        self.search_btn = self.search_button
+        self.apply_button = self._button("2. Apply", self.apply_proposal)
+        self.apply_btn = self.apply_button
+        self.discard_button = self._button("Discard draft", self.discard)
+        self.discard_btn = self.discard_button
+        self.save_button = self._button("3. Save to CBZ", self.save)
+        self.save_btn = self.save_button
+        self.save_button.setProperty("primary", True)
+        for button in (
+            self.search_button,
+            self.apply_button,
+            self.discard_button,
+            self.save_button,
+        ):
+            cv_layout.addWidget(button)
+        cv_panel.setMinimumWidth(300)
+        cv_panel.setMaximumWidth(380)
+        body_splitter.addWidget(cv_panel)
+        body_splitter.setStretchFactor(0, 3)
+        body_splitter.setStretchFactor(1, 1)
+        body_splitter.setSizes([700, 340])
+        outer.addWidget(body_splitter, 1)
         self._set_action_state()
         self.apply_theme(self._theme)
 
@@ -133,15 +263,39 @@ class CbzMetadataPanel(QWidget):
         ):
             button.setStyleSheet(default_btn)
         self.save_button.setStyleSheet(button_stylesheet(theme, "primary"))
-    def _add_input(self, label, name):
+    def _add_input(self, label, name, form_layout: QFormLayout | None = None):
+        target = form_layout or self.form_layout
         if name in MULTILINE_FIELDS:
-            widget = QTextEdit(); widget.setMaximumHeight(90)
-            widget.textChanged.connect(lambda n=name, w=widget: self._field_changed(n, w.toPlainText()))
+            widget = QTextEdit()
+            widget.setMaximumHeight(90)
+            widget.textChanged.connect(
+                lambda n=name, w=widget: self._field_changed(n, w.toPlainText())
+            )
         else:
             widget = QLineEdit()
             widget.textChanged.connect(lambda value, n=name: self._field_changed(n, value))
-        self.inputs[name] = widget; setattr(self, f"{name}_input", widget)
-        self.form_layout.addRow(QLabel(label), widget)
+        self.inputs[name] = widget
+        setattr(self, f"{name}_input", widget)
+        target.addRow(QLabel(label), widget)
+
+    def _on_instance_filter_changed(self, text: str) -> None:
+        self.instance_model.set_filter(text)
+
+    def _on_instance_row_changed(self, current, _previous) -> None:
+        if current.isValid():
+            self._selector_changed(current.row())
+
+    def _sync_instance_table(self) -> None:
+        row = self.instance_model.row_for_comic(self.comic)
+        if row < 0:
+            return
+        index = self.instance_model.index(row, 0)
+        self.instance_table.selectionModel().blockSignals(True)
+        try:
+            self.instance_table.setCurrentIndex(index)
+            self.instance_table.scrollTo(index)
+        finally:
+            self.instance_table.selectionModel().blockSignals(False)
     @staticmethod
     def _button(text, slot):
         button = QPushButton(text); button.clicked.connect(slot); return button
@@ -182,6 +336,8 @@ class CbzMetadataPanel(QWidget):
         self.comic_selector.blockSignals(True)
         try:
             self.comic_selector.clear()
+            self.instance_model.set_comics(self._available_comics)
+            self.instance_model.set_filter(self.instance_filter.text())
             for comic in self._available_comics:
                 label = f"{comic.path.name} — {comic.series_name or comic.title or 'Unidentified'}"
                 if comic.issue_number:
@@ -195,6 +351,7 @@ class CbzMetadataPanel(QWidget):
                     break
         finally:
             self.comic_selector.blockSignals(False)
+        self._sync_instance_table()
         # A scan/enrichment may replace Comic objects without changing paths.
         # Rebind the session so subsequent edits target the current model object.
         if current_key and self.comic is not None:
@@ -222,6 +379,7 @@ class CbzMetadataPanel(QWidget):
                     break
         finally:
             self.comic_selector.blockSignals(False)
+        self._sync_instance_table()
 
     def _activate_comic(self, comic):
         self.shutdown_workers(); self._request_token += 1
@@ -306,8 +464,12 @@ class CbzMetadataPanel(QWidget):
     search_comic = search
     def _start_search(self):
         if not self.session or self._search_worker is not None or self._hydrate_worker is not None or self._write_worker is not None: return
+        from comicdesk.ui.api_key_prompt import ensure_api_key
+
+        if not ensure_api_key(self, self.config, "Comic Vine search"):
+            self._set_status("Comic Vine API key is required")
+            return
         key = str(getattr(self.config, "api_key", "") or "").strip()
-        if not key: self._set_status("Comic Vine API key is empty"); return
         self._request_token += 1; token, path = self._request_token, self._path_key
         self._proposal = None; self._clear_candidates()
         self._search_worker = MetadataSearchWorker(self.session.snapshot(), key, cache_enabled=bool(getattr(self.config, "cache_enabled", True)), token=token)

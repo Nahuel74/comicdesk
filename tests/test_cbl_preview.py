@@ -38,12 +38,15 @@ def test_panel_regenerates_with_current_name_and_comics(qapp):
     panel.close()
 
 
-def test_expanded_state_survives_refresh(qapp):
+def test_preview_updates_after_list_changes(qapp):
     panel = ReadingListPanel()
-    panel.preview.set_expanded(False)
     panel.add_comic(Comic(path="one.cbz", series_name="Series", issue_number="1"))
-    assert not panel.preview.is_expanded()
-    panel.preview.set_expanded(True)
-    panel.preview.maximize()
-    assert panel.preview.is_expanded()
+    assert "Series" in panel.preview.toPlainText()
+    panel.add_comic(Comic(path="two.cbz", series_name="Other", issue_number="2"))
+    assert "Series" in panel.preview.toPlainText()
+    assert "Other" in panel.preview.toPlainText()
+    panel._remove_at(0)
+    xml = panel.preview.toPlainText()
+    assert 'SeriesName="Series"' not in xml
+    assert 'SeriesName="Other"' in xml
     panel.close()

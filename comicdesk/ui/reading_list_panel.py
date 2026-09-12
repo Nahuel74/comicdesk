@@ -4,8 +4,18 @@ from pathlib import Path
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QHeaderView, QMessageBox, QPushButton, QSplitter,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QFileDialog,
+    QHBoxLayout,
+    QHeaderView,
+    QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QSplitter,
+    QStyle,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from comicdesk.config import Config
@@ -17,9 +27,11 @@ from comicdesk.ui.reading_list_header import ReadingListHeader
 from comicdesk.ui.reading_list_sort import ReadingListSort
 from comicdesk.ui.cbl_preview import CBLPreview
 from comicdesk.ui.reading_list_filename import safe_filename
-from comicdesk.ui.theme import colors_for, table_stylesheet
+from comicdesk.ui.theme import button_stylesheet, colors_for, table_stylesheet
 
 logger = logging.getLogger(__name__)
+
+
 class ReadingListPanel(QWidget):
     """Panel for managing the reading list."""
     status_message = Signal(str)
@@ -35,6 +47,7 @@ class ReadingListPanel(QWidget):
         self.reading_list = ReadingList(name="New Reading List")
         self.available_comics = []
         self.is_dirty = False
+        self._source_cbl_path: Path | None = None
         self._setup_ui()
         self._populate_table()
         self._update_preview()
@@ -45,11 +58,13 @@ class ReadingListPanel(QWidget):
         self.name_label = self.header.name_edit
         self.count_label = self.header.count_label
         self.clear_btn = self.header.clear_btn
+        self.save_btn = self.header.save_btn
         self.export_btn = self.header.export_btn
         self.import_btn = self.header.import_btn
-        self.export_btn.setObjectName("primaryExportButton")
-        self.export_btn.setDefault(True)
+        self.save_btn.setObjectName("primarySaveButton")
+        self.save_btn.setDefault(True)
         self.header.clear_requested.connect(self.clear_list)
+        self.header.save_requested.connect(self.save_list)
         self.header.export_requested.connect(self.export_cbl)
         self.header.import_requested.connect(self.import_cbl)
         self.header.name_changed.connect(self._on_name_changed)
@@ -59,25 +74,32 @@ class ReadingListPanel(QWidget):
         controls_layout = QVBoxLayout(self.controls)
         controls_layout.setContentsMargins(12, 6, 12, 6)
         sort_row = ReadingListSort()
-        sort_row.changed.connect(self._on_sort_changed)
+        sort_row.apply_requested.connect(self._apply_sort)
         self.sort_controls = sort_row
         self.sort_combo = sort_row.criterion_combo
         self.direction_combo = sort_row.direction_combo
         self.sort_direction_combo = sort_row.direction_combo
-        self.manual_check = sort_row.manual_check
+        self.apply_sort_btn = sort_row.apply_button
         controls_layout.addWidget(sort_row)
         layout.addWidget(self.controls)
 
         self._setup_table()
         self.preview = CBLPreview()
-        self.splitter = QSplitter(Qt.Vertical)
-        self.splitter.addWidget(self.table)
+        self._table_pane = QWidget()
+        table_pane_layout = QVBoxLayout(self._table_pane)
+        table_pane_layout.setContentsMargins(12, 0, 12, 12)
+        table_pane_layout.setSpacing(0)
+        table_pane_layout.addWidget(self.table)
+
+        self.preview.setMinimumWidth(self._PREVIEW_PANE_MIN_WIDTH)
+
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.addWidget(self._table_pane)
         self.splitter.addWidget(self.preview)
         self.splitter.setChildrenCollapsible(False)
-        self.splitter.setStretchFactor(0, 3)
-        self.splitter.setStretchFactor(1, 2)
-        self.splitter.setSizes([420, 240])
-        self.preview.maximize_requested.connect(self._maximize_preview)
+        self.splitter.setStretchFactor(0, 2)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([650, self._PREVIEW_PANE_DEFAULT_WIDTH])
         layout.addWidget(self.splitter, 1)
         self.apply_theme(self._theme)
 
@@ -90,52 +112,178 @@ class ReadingListPanel(QWidget):
         self.header.apply_theme(theme)
         self.sort_controls.apply_theme(theme)
         self.preview.apply_theme(theme)
+        self.save_btn.setStyleSheet(button_stylesheet(theme, "primary"))
+
+    _COL_UP = 0
+    _COL_DOWN = 1
+    _COL_NUM = 2
+    _COL_SERIES = 3
+    _COL_VOLUME = 4
+    _COL_ISSUE = 5
+    _COL_TITLE = 6
+    _COL_RELEASE = 7
+    _COL_FILE = 8
+    _COL_REMOVE = 9
+    _ACTION_COL_WIDTH = 36
+    _DOWN_COL_WIDTH = 40
+    _REMOVE_COL_WIDTH = 46
+    _REMOVE_CELL_RIGHT_PAD = 8
+    _ROW_HEIGHT = 36
+    _ACTION_BUTTON_SIZE = 24
+    _PREVIEW_PANE_MIN_WIDTH = 260
+    _PREVIEW_PANE_DEFAULT_WIDTH = 350
 
     def _setup_table(self):
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["", "", "Comic", ""])
+        self.table = QTableWidget(0, 10)
+        self.table.setHorizontalHeaderLabels([
+            "", "", "#", "Series", "Volume", "Issue", "Title", "Release Date", "File", "",
+        ])
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        for column in (0, 1, 3):
-            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-    def _button(self, text, slot):
-        button = QPushButton(text)
-        button.setFixedSize(26, 24)
+        header.setStretchLastSection(False)
+        header.setMinimumSectionSize(36)
+        for column in (self._COL_SERIES, self._COL_FILE):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
+        for column in (
+            self._COL_NUM,
+            self._COL_VOLUME,
+            self._COL_ISSUE,
+            self._COL_TITLE,
+            self._COL_RELEASE,
+        ):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self._COL_UP, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(self._COL_UP, self._ACTION_COL_WIDTH)
+        header.setSectionResizeMode(self._COL_DOWN, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(self._COL_DOWN, self._DOWN_COL_WIDTH)
+        header.setSectionResizeMode(self._COL_REMOVE, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(self._COL_REMOVE, self._REMOVE_COL_WIDTH)
+        self.table.setViewportMargins(0, 0, 2, 0)
+        self.table.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
+        vheader = self.table.verticalHeader()
+        vheader.setVisible(False)
+        vheader.setDefaultSectionSize(self._ROW_HEIGHT)
+        vheader.setMinimumSectionSize(self._ROW_HEIGHT)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.setHorizontalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
+
+    def _row_icon_button(self, icon: QStyle.StandardPixmap, tooltip: str, slot) -> QPushButton:
+        button = QPushButton()
+        button.setIcon(self.style().standardIcon(icon))
+        button.setFixedSize(self._ACTION_BUTTON_SIZE, self._ACTION_BUTTON_SIZE)
+        button.setToolTip(tooltip)
+        button.setStyleSheet(button_stylesheet(self._theme, "compact"))
         button.clicked.connect(slot)
         return button
+
+    def _row_remove_button(self, slot) -> QPushButton:
+        """Monochrome remove control matching the up/down row buttons."""
+        c = colors_for(self._theme)
+        button = QPushButton("×")
+        button.setFixedSize(self._ACTION_BUTTON_SIZE, self._ACTION_BUTTON_SIZE)
+        button.setToolTip("Remove from list")
+        button.setStyleSheet(
+            button_stylesheet(self._theme, "compact")
+            + f"""
+            QPushButton {{
+                color: {c['muted']};
+                font-size: 16px;
+                font-weight: 500;
+                padding: 0;
+            }}
+            QPushButton:hover {{
+                color: {c['text']};
+            }}
+            """
+        )
+        button.clicked.connect(slot)
+        return button
+
+    def _action_cell_widget(self, widget: QWidget, right_pad: int = 0) -> QWidget:
+        """Center row actions inside the cell; optional right gutter before scrollbar."""
+        host = QWidget()
+        host.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        layout = QHBoxLayout(host)
+        layout.setContentsMargins(0, 0, right_pad, 0)
+        layout.setSpacing(0)
+        layout.addStretch(1)
+        layout.addWidget(widget, 0, Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch(1)
+        return host
+
+    @staticmethod
+    def _display_release_date(comic: Comic) -> str:
+        if comic.release_date is not None:
+            return comic.release_date.strftime("%Y-%m-%d")
+        if comic.year:
+            return comic.year
+        return "—"
+
     def _populate_table(self):
         self.table.setRowCount(len(self.reading_list.comics))
         last = len(self.reading_list.comics) - 1
         for row, comic in enumerate(self.reading_list.comics):
-            up = self._button("▲", lambda _, r=row: self._move_up(r))
-            down = self._button("▼", lambda _, r=row: self._move_down(r))
-            can_move = self.reading_list.ordered_by == "manual"
-            up.setEnabled(can_move and row > 0)
-            down.setEnabled(can_move and row < last)
-            self.table.setCellWidget(row, 0, up)
-            self.table.setCellWidget(row, 1, down)
-            self.table.setItem(row, 2, QTableWidgetItem(f"{comic.series_name} #{comic.issue_number}"))
-            self.table.setCellWidget(row, 3, self._button("×", lambda _, r=row: self._remove_at(r)))
-        self._update_count()
-    def _update_count(self):
-        self.header.set_count(len(self.reading_list.comics))
-
-    def _on_sort_changed(self, index=None):
-        previous = self._list_snapshot()
-        if self.sort_controls.is_manual:
-            self.reading_list.sort_by("manual")
-        else:
-            self.reading_list.sort_by(
-                self.sort_combo.currentData(), self.direction_combo.currentData()
+            up = self._row_icon_button(
+                QStyle.StandardPixmap.SP_ArrowUp,
+                "Move up",
+                lambda _, r=row: self._move_up(r),
             )
+            down = self._row_icon_button(
+                QStyle.StandardPixmap.SP_ArrowDown,
+                "Move down",
+                lambda _, r=row: self._move_down(r),
+            )
+            up.setEnabled(row > 0)
+            down.setEnabled(row < last)
+            self.table.setCellWidget(row, 0, self._action_cell_widget(up))
+            self.table.setCellWidget(
+                row, 1, self._action_cell_widget(down, right_pad=2),
+            )
+            self.table.setItem(row, 2, QTableWidgetItem(str(row + 1)))
+            series_label = comic.series_name or "—"
+            series_item = QTableWidgetItem(series_label)
+            if series_label != "—":
+                series_item.setToolTip(series_label)
+            self.table.setItem(row, self._COL_SERIES, series_item)
+            self.table.setItem(row, self._COL_VOLUME, QTableWidgetItem(comic.volume or "—"))
+            self.table.setItem(row, self._COL_ISSUE, QTableWidgetItem(comic.issue_number or "—"))
+            title_label = comic.title or "—"
+            title_item = QTableWidgetItem(title_label)
+            if title_label != "—":
+                title_item.setToolTip(title_label)
+            self.table.setItem(row, self._COL_TITLE, title_item)
+            self.table.setItem(
+                row, self._COL_RELEASE, QTableWidgetItem(self._display_release_date(comic)),
+            )
+            file_name = Path(comic.path).name if comic.path else "—"
+            file_item = QTableWidgetItem(file_name)
+            if comic.path:
+                file_item.setToolTip(str(comic.path))
+            self.table.setItem(row, self._COL_FILE, file_item)
+            remove = self._row_remove_button(lambda _, r=row: self._remove_at(r))
+            self.table.setCellWidget(
+                row,
+                self._COL_REMOVE,
+                self._action_cell_widget(remove, self._REMOVE_CELL_RIGHT_PAD),
+            )
+            self.table.setRowHeight(row, self._ROW_HEIGHT)
+        self.sort_controls.set_order_state(self.reading_list.ordered_by == "manual")
+        self._update_count()
+
+    def _apply_sort(self):
+        previous = self._list_snapshot()
+        self.reading_list.sort_by(self.sort_combo.currentData(), self.direction_combo.currentData())
         self._populate_table()
         self._update_preview()
         self._set_dirty(True)
         self._emit_list_changed_if_needed(previous)
+    def _update_count(self):
+        self.header.set_count(len(self.reading_list.comics))
 
     def _on_name_changed(self, _name):
         self._update_preview()
@@ -146,19 +294,21 @@ class ReadingListPanel(QWidget):
         dirty = bool(dirty)
         if self.is_dirty != dirty:
             self.is_dirty = dirty
+            self.header.set_dirty(dirty)
             self.dirty_changed.emit(dirty)
     def _list_snapshot(self): return deepcopy(self.reading_list)
     def _emit_list_changed_if_needed(self, previous):
         self.list_changed.emit() if self.reading_list != previous else None
-    def add_comic(self, comic: Comic):
+    def add_comic(self, comic: Comic) -> bool:
         if self.reading_list.add_comic(comic):
             self._apply_current_order()
             self._populate_table()
             self._update_preview()
             self._set_dirty(True)
             self.list_changed.emit()
-        else:
-            QMessageBox.information(self, "Duplicate", "This comic is already in the list")
+            return True
+        QMessageBox.information(self, "Duplicate", "This comic is already in the list")
+        return False
     def set_available_comics(self, comics):
         self.available_comics = list(comics or [])
 
@@ -270,6 +420,7 @@ class ReadingListPanel(QWidget):
             order_direction=document.order_direction,
         )
         self.header.set_reading_list(self.reading_list)
+        self._source_cbl_path = Path(path)
         self._sync_sort_controls()
         self._populate_table()
         self._update_preview()
@@ -281,30 +432,40 @@ class ReadingListPanel(QWidget):
         self.status_message.emit(status)
     def _sync_sort_controls(self):
         criterion = self.reading_list.ordered_by
-        blockers = (QSignalBlocker(self.manual_check), QSignalBlocker(self.sort_combo),
-                    QSignalBlocker(self.direction_combo))
+        blockers = (
+            QSignalBlocker(self.sort_combo),
+            QSignalBlocker(self.direction_combo),
+        )
         try:
-            self.manual_check.setChecked(criterion == "manual")
+            self.sort_controls.set_order_state(criterion == "manual")
             if criterion == "manual":
                 return
-            for combo, data in ((self.sort_combo, criterion),
-                                (self.direction_combo, self.reading_list.order_direction)):
+            for combo, data in (
+                (self.sort_combo, criterion),
+                (self.direction_combo, self.reading_list.order_direction),
+            ):
                 index = combo.findData(data)
                 if index >= 0:
                     combo.setCurrentIndex(index)
         finally:
             del blockers
+
     def _move_up(self, row):
-        if self.reading_list.ordered_by == "manual" and row > 0:
+        if row > 0:
             previous = self._list_snapshot()
             self.reading_list.move_comic(self.reading_list.comics[row], -1)
-            self._populate_table(); self._update_preview(); self._set_dirty(True)
+            self._populate_table()
+            self._update_preview()
+            self._set_dirty(True)
             self._emit_list_changed_if_needed(previous)
+
     def _move_down(self, row):
-        if self.reading_list.ordered_by == "manual" and row < len(self.reading_list.comics) - 1:
+        if row < len(self.reading_list.comics) - 1:
             previous = self._list_snapshot()
             self.reading_list.move_comic(self.reading_list.comics[row], 1)
-            self._populate_table(); self._update_preview(); self._set_dirty(True)
+            self._populate_table()
+            self._update_preview()
+            self._set_dirty(True)
             self._emit_list_changed_if_needed(previous)
     def _remove_at(self, row):
         if 0 <= row < len(self.reading_list.comics):
@@ -322,17 +483,34 @@ class ReadingListPanel(QWidget):
         self._set_dirty(True)
         self._emit_list_changed_if_needed(previous)
     def _apply_current_order(self):
-        if self.sort_controls.is_manual:
-            self.reading_list.sort_by("manual")
-        else:
+        if self.reading_list.ordered_by != "manual":
             self.reading_list.sort_by(
                 self.sort_combo.currentData(), self.direction_combo.currentData()
             )
     def _update_preview(self):
         content = generate_cbl(self.reading_list) if self.reading_list.comics else ""
         self.preview.set_content(content)
-    def _maximize_preview(self):
-        self.splitter.setSizes([max(1, self.table.minimumHeight()), max(180, self.height())])
+    def save_list(self) -> None:
+        """Save to the imported CBL path, or prompt for a path like export."""
+        if not self.reading_list.comics:
+            self.status_message.emit("Nothing to save: the reading list is empty")
+            return
+        if self._source_cbl_path is not None:
+            if self._write_cbl(self._source_cbl_path):
+                self.status_message.emit(f"Saved reading list to {self._source_cbl_path}")
+            return
+        self.export_cbl()
+
+    def _write_cbl(self, path: Path, action: str = "Save") -> bool:
+        try:
+            save_cbl(generate_cbl(self.reading_list), path)
+        except OSError as error:
+            logger.exception("Unable to write CBL to %s", path)
+            self.status_message.emit(f"{action} failed: {error}")
+            return False
+        self._persist_cbl_directory(str(path))
+        self._set_dirty(False)
+        return True
 
     def export_cbl(self):
         """Export the current list, reporting outcomes without modal success UI."""
@@ -348,15 +526,9 @@ class ReadingListPanel(QWidget):
             "CBL Files (*.cbl);;All Files (*)",
         )
         if path:
-            self._persist_cbl_directory(path)
-            try:
-                save_cbl(generate_cbl(self.reading_list), Path(path))
-            except OSError as error:
-                logger.exception("Unable to export CBL to %s", path)
-                self.status_message.emit(f"Export failed: {error}")
-                return
-            self._set_dirty(False)
-            self.status_message.emit(f"Exported reading list to {path}")
+            target = Path(path)
+            if self._write_cbl(target, action="Export"):
+                self.status_message.emit(f"Exported reading list to {path}")
 
     @staticmethod
     def _safe_filename(name):

@@ -1,15 +1,15 @@
 """Explicit sorting controls for a reading list."""
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QWidget
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QWidget
 
-from comicdesk.ui.theme import colors_for, muted_label_stylesheet
+from comicdesk.ui.theme import button_stylesheet, colors_for, muted_label_stylesheet
 
 
 class ReadingListSort(QWidget):
-    """Criterion, direction, and independent manual-mode controls."""
+    """Criterion and direction; sorting runs when the user clicks Apply."""
 
-    changed = Signal()
+    apply_requested = Signal()
 
     CRITERIA = (
         ("release_date", "Release Date"),
@@ -35,14 +35,14 @@ class ReadingListSort(QWidget):
         self.direction_combo.addItem("Descending", "desc")
         self.direction_combo.setToolTip("Choose the ordering direction")
         layout.addWidget(self.direction_combo)
-        self.manual_check = QCheckBox("Manual")
-        self.manual_check.setToolTip("Keep the current order and enable moving comics")
-        layout.addWidget(self.manual_check)
+        self.apply_button = QPushButton("Apply")
+        self.apply_button.setToolTip("Sort the list using the selected criterion")
+        self.apply_button.setFixedHeight(28)
+        self.apply_button.clicked.connect(self.apply_requested.emit)
+        layout.addWidget(self.apply_button)
         self.state_label = QLabel("Sorted")
         layout.addWidget(self.state_label)
-        self.criterion_combo.currentIndexChanged.connect(self._sorted_changed)
-        self.direction_combo.currentIndexChanged.connect(self._sorted_changed)
-        self.manual_check.toggled.connect(self._manual_changed)
+        layout.addStretch(1)
         self.apply_theme(self._theme)
 
     def apply_theme(self, theme: str) -> None:
@@ -52,6 +52,7 @@ class ReadingListSort(QWidget):
         self.setStyleSheet(f"color: {c['text']};")
         self.order_label.setStyleSheet(f"color: {c['text']};")
         self.state_label.setStyleSheet(muted_label_stylesheet(theme))
+        self.apply_button.setStyleSheet(button_stylesheet(theme, "compact"))
 
     @property
     def criterion(self):
@@ -61,20 +62,5 @@ class ReadingListSort(QWidget):
     def direction(self):
         return self.direction_combo.currentData()
 
-    @property
-    def is_manual(self):
-        return self.manual_check.isChecked()
-
-    def set_manual(self, manual: bool):
-        self.manual_check.setChecked(manual)
-
-    def _sorted_changed(self, _index):
-        if not self.is_manual:
-            self.state_label.setText("Sorted")
-            self.changed.emit()
-
-    def _manual_changed(self, manual: bool):
-        self.criterion_combo.setEnabled(not manual)
-        self.direction_combo.setEnabled(not manual)
-        self.state_label.setText("Manual order" if manual else "Sorted")
-        self.changed.emit()
+    def set_order_state(self, manual: bool) -> None:
+        self.state_label.setText("Custom order" if manual else "Sorted")

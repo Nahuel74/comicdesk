@@ -94,7 +94,7 @@ class DownloadQueuePanel(QWidget):
         layout.setSpacing(SPACING["sm"])
 
         header_row = QHBoxLayout()
-        self.title_label = QLabel("Downloads")
+        self.title_label = QLabel("Download queue")
         header_row.addWidget(self.title_label)
         header_row.addStretch()
         self.count_label = QLabel("")
@@ -104,7 +104,8 @@ class DownloadQueuePanel(QWidget):
         header_row.addWidget(self.clear_completed_button)
         layout.addLayout(header_row)
 
-        self.hint_label = QLabel("Right-click a row for actions")
+        self.hint_label = QLabel("Right-click a row for provider actions and retries")
+        self.hint_label.setWordWrap(True)
         layout.addWidget(self.hint_label)
 
         self.table = QTableWidget(0, 3)

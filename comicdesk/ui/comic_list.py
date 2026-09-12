@@ -16,13 +16,8 @@ from comicdesk.ui.comic_list_workers import EnrichWorker as _EnrichWorker, ScanW
 from comicdesk.ui.comic_table_model import ComicFilterProxyModel, ComicTableModel
 from comicdesk.ui.comic_selection import ComicSelection
 from comicdesk.services.comicvine_api import ComicVineClient
-from comicdesk.ui.theme import (
-    button_stylesheet,
-    muted_label_stylesheet,
-    panel_header_stylesheet,
-    panel_title_stylesheet,
-    table_stylesheet,
-)
+from comicdesk.ui.theme import button_stylesheet, muted_label_stylesheet, table_stylesheet
+from comicdesk.ui.widgets.responsive_action_bar import ResponsiveActionBar
 
 
 class EnrichWorker(_EnrichWorker):
@@ -91,27 +86,28 @@ class ComicList(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        self.header = QWidget()
-        header_layout = QHBoxLayout(self.header)
-        header_layout.setContentsMargins(12, 12, 12, 12)
-        self.title_label = QLabel("Comics")
-        header_layout.addWidget(self.title_label)
-        header_layout.addStretch()
-        self.enrich_btn = QPushButton("Update all metadata from Comic Vine")
+
+        actions_row = QWidget()
+        actions_layout = QHBoxLayout(actions_row)
+        actions_layout.setContentsMargins(12, 8, 12, 8)
+        self.action_bar = ResponsiveActionBar()
+        self.enrich_btn = QPushButton("Enrich all from Comic Vine")
         self.enrich_btn.setProperty("primary", True)
+        self.enrich_btn.setToolTip("Update and save Comic Vine metadata for every comic in this folder")
         self.enrich_btn.clicked.connect(self._on_enrich)
-        header_layout.addWidget(self.enrich_btn)
-        self.add_selected_btn = QPushButton("Add selected")
+        self.add_selected_btn = QPushButton("Add to list")
         self.add_selected_btn.setToolTip("Add the selected comics to the reading list")
         self.add_selected_btn.setEnabled(False)
         self.add_selected_btn.clicked.connect(self._add_to_list)
-        header_layout.addWidget(self.add_selected_btn)
         self.clear_selection_btn = QPushButton("Clear selection")
         self.clear_selection_btn.setToolTip("Clear the current comic selection")
         self.clear_selection_btn.setEnabled(False)
         self.clear_selection_btn.clicked.connect(self._clear_selection)
-        header_layout.addWidget(self.clear_selection_btn)
-        layout.addWidget(self.header)
+        self.action_bar.add_action(self.enrich_btn, "Enrich all from Comic Vine")
+        self.action_bar.add_action(self.add_selected_btn, "Add to reading list")
+        self.action_bar.add_action(self.clear_selection_btn, "Clear selection")
+        actions_layout.addWidget(self.action_bar, 1)
+        layout.addWidget(actions_row)
         layout.addWidget(self.toolbar)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
@@ -123,14 +119,13 @@ class ComicList(QWidget):
     def apply_theme(self, theme: str) -> None:
         """Re-apply visual tokens for the active theme."""
         self._theme = theme
-        self.header.setStyleSheet(panel_header_stylesheet(theme))
-        self.title_label.setStyleSheet(panel_title_stylesheet(theme))
         self.enrich_btn.setStyleSheet(button_stylesheet(theme, "primary"))
         self.table.setStyleSheet(table_stylesheet(theme))
         self.status_label.setStyleSheet(
             muted_label_stylesheet(theme) + " padding: 8px 12px;"
         )
         self.toolbar.apply_theme(theme)
+        self.action_bar.apply_theme(theme)
 
     def load_folder(self, path: Path):
         self.current_folder = path
@@ -205,8 +200,9 @@ class ComicList(QWidget):
             self.status_label.setText(message)
 
     def _on_enrich(self):
-        if not self.config or not self.config.api_key:
-            self.status_label.setText("Error: No API key configured")
+        from comicdesk.ui.api_key_prompt import ensure_api_key
+
+        if not ensure_api_key(self, self.config, "Updating metadata from Comic Vine"):
             return
         answer = QMessageBox.question(self, "Confirm metadata update",
             f"Update and permanently save Comic Vine metadata for all {len(self.comics)} comics?",

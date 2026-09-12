@@ -60,16 +60,19 @@ def test_empty_name_is_rejected(panel):
 
 def test_actions_follow_empty_and_non_empty_states(panel):
     assert not panel.clear_btn.isEnabled()
+    assert not panel.save_btn.isEnabled()
     assert not panel.export_btn.isEnabled()
 
     panel.add_comic(Comic(path="issue.cbz", series_name="Series", issue_number="1"))
     assert panel.count_label.text() == "1 item"
     assert panel.clear_btn.isEnabled()
+    assert panel.save_btn.isEnabled()
     assert panel.export_btn.isEnabled()
 
     panel.clear_list()
     assert panel.count_label.text() == "0 items"
     assert not panel.clear_btn.isEnabled()
+    assert not panel.save_btn.isEnabled()
     assert not panel.export_btn.isEnabled()
 
 
@@ -150,6 +153,43 @@ def test_export_success_clears_dirty_and_reports_status(panel, monkeypatch):
     assert messages == ["Exported reading list to /tmp/weekly.cbl"]
 
 
+def test_save_without_import_path_uses_export_dialog(panel, monkeypatch):
+    panel.add_comic(Comic(path="issue.cbz", series_name="Series", issue_number="1"))
+    requested = []
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *args: (requested.append(args[2]) or ("/tmp/saved.cbl", "")),
+    )
+    monkeypatch.setattr("comicdesk.ui.reading_list_panel.save_cbl", lambda *_args: None)
+    panel.save_list()
+    assert requested == ["New_Reading_List.cbl"]
+    assert panel._source_cbl_path is None
+
+
+def test_save_writes_imported_cbl_path(panel, monkeypatch, tmp_path):
+    comic = Comic(path="issue.cbz", series_name="Series", issue_number="1")
+    document = CBLDocument(name="Imported", books=[], ordered_by="manual", order_direction="asc")
+    result = ReconciliationResult(matches=[comic], new_issues=[], missing_files=[])
+    cbl_path = tmp_path / "reading.cbl"
+    _stub_import(monkeypatch, document, result, path=str(cbl_path))
+    panel.import_cbl()
+    assert panel._source_cbl_path == cbl_path
+
+    written = []
+    monkeypatch.setattr(
+        "comicdesk.ui.reading_list_panel.save_cbl",
+        lambda _xml, path: written.append(path),
+    )
+    messages = []
+    panel.status_message.connect(messages.append)
+    panel.save_list()
+
+    assert written == [cbl_path]
+    assert panel.is_dirty is False
+    assert messages == [f"Saved reading list to {cbl_path}"]
+
+
 def test_export_filesystem_error_is_reported(panel, monkeypatch):
     panel.add_comic(Comic(path="issue.cbz", series_name="Series", issue_number="1"))
     messages = []
@@ -170,19 +210,16 @@ def test_export_filesystem_error_is_reported(panel, monkeypatch):
 def test_export_shortcut_is_preserved(qapp):
     window = MainWindow()
     try:
-        export_actions = [
-            action for action in window.menuBar().actions()
-            if action.menu() and any(
-                child.text().replace("&", "") == "Export CBL"
-                for child in action.menu().actions()
-            )
-        ]
-        assert export_actions
+        file_menu = next(
+            action.menu() for action in window.menuBar().actions()
+            if action.text().replace("&", "") == "File"
+        )
         export = next(
-            child for child in export_actions[0].menu().actions()
-            if child.text().replace("&", "") == "Export CBL"
+            action for action in file_menu.actions()
+            if action.text().replace("&", "") == "Export CBL"
         )
         assert export.shortcut().toString() == "Ctrl+E"
+        assert window.export_action is export
     finally:
         window.close()
 
@@ -274,9 +311,11 @@ def test_import_syncs_sorted_controls_from_document(panel, monkeypatch):
     )
 
     panel.import_cbl()
-    assert panel.manual_check.isChecked() is False
+    assert panel.reading_list.ordered_by == "title"
     assert panel.sort_combo.currentData() == "title"
     assert panel.direction_combo.currentData() == "desc"
+
+
 def test_import_syncs_manual_control_from_document(panel, monkeypatch):
     imported = Comic(path="imported.cbz", series_name="Imported", issue_number="2")
     _stub_import(
@@ -285,7 +324,8 @@ def test_import_syncs_manual_control_from_document(panel, monkeypatch):
     )
 
     panel.import_cbl()
-    assert panel.manual_check.isChecked() is True
+    assert panel.reading_list.ordered_by == "manual"
+    assert panel.sort_controls.state_label.text() == "Custom order"
 def test_importing_empty_list_replaces_contents_and_updates_controls(panel, monkeypatch):
     panel.add_comic(Comic(path="current.cbz", series_name="Current", issue_number="1"))
     messages = []
@@ -370,22 +410,25 @@ def test_reading_list_displays_series_name_not_title(panel):
     )
     panel.add_comic(comic)
 
-    item = panel.table.item(0, 2)
-    assert item.text() == "Avengers #22"
+    assert panel.table.item(0, 3).text() == "Avengers"
+    assert panel.table.item(0, 5).text() == "22"
+    assert panel.table.item(0, 6).text() == "The Avengers assemble"
 
 
-def test_reading_list_display_omits_year(panel):
+def test_reading_list_displays_release_date(panel):
     comic = Comic(
         path="spidey.cbz",
         series_name="Amazing Spider-Man",
         issue_number="700",
         year="2013",
+        month="7",
+        day="4",
     )
     panel.add_comic(comic)
 
-    item = panel.table.item(0, 2)
-    assert item.text() == "Amazing Spider-Man #700"
-    assert "2013" not in item.text()
+    assert panel.table.item(0, 3).text() == "Amazing Spider-Man"
+    assert panel.table.item(0, 5).text() == "700"
+    assert panel.table.item(0, 7).text() == "2013-07-04"
 
 
 # --- Tests for last CBL directory persistence ---

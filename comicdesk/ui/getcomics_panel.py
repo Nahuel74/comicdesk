@@ -130,111 +130,56 @@ class GetComicsPanel(QWidget):
         outer.setContentsMargins(*(SPACING["md"] for _ in range(4)))
         outer.setSpacing(SPACING["sm"])
 
-        self.title_label = QLabel("GetComics")
+        self.title_label = QLabel("Search GetComics")
+        self.title_label.setObjectName("getComicsSectionLabel")
         outer.addWidget(self.title_label)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, SPACING["sm"], 0)
-
-        left_splitter = QSplitter(Qt.Orientation.Vertical)
-
-        search_area = QWidget()
-        search_area_layout = QVBoxLayout(search_area)
-        search_area_layout.setContentsMargins(0, 0, 0, 0)
-
-        search_group = QGroupBox("Search")
-        search_form = QFormLayout(search_group)
+        search_row = QHBoxLayout()
         self.criterion_combo = QComboBox()
         self.criterion_combo.addItem("Name", "name")
         self.criterion_combo.addItem("Category", "category")
         self.criterion_combo.addItem("Tag", "tag")
-        search_form.addRow("Criterion", self.criterion_combo)
-
-        query_row = QHBoxLayout()
         self.query_input = QLineEdit()
         self.query_input.setPlaceholderText("Search query or slug...")
         self.query_input.returnPressed.connect(lambda: self._start_search())
         self.search_button = QPushButton("Search")
         self.search_button.clicked.connect(lambda: self._start_search())
-        query_row.addWidget(self.query_input)
-        query_row.addWidget(self.search_button)
-        search_form.addRow("Query", query_row)
-
-        page_row = QHBoxLayout()
         self.prev_page_button = QPushButton("Previous")
         self.prev_page_button.clicked.connect(self._previous_page)
         self.page_label = QLabel("Page 1")
         self.next_page_button = QPushButton("Next")
         self.next_page_button.clicked.connect(self._next_page)
-        page_row.addWidget(self.prev_page_button)
-        page_row.addWidget(self.page_label, 1, Qt.AlignmentFlag.AlignCenter)
-        page_row.addWidget(self.next_page_button)
-        search_form.addRow("", page_row)
-        search_area_layout.addWidget(search_group)
+        search_row.addWidget(self.criterion_combo)
+        search_row.addWidget(self.query_input, 1)
+        search_row.addWidget(self.search_button)
+        search_row.addWidget(self.prev_page_button)
+        search_row.addWidget(self.page_label)
+        search_row.addWidget(self.next_page_button)
+        outer.addLayout(search_row)
 
-        self.results_list = QListWidget()
-        self.results_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self.results_list.currentItemChanged.connect(self._on_result_selected)
-        search_area_layout.addWidget(self.results_list, 1)
-        left_splitter.addWidget(search_area)
-
-        wishlist_group = QGroupBox("Wishlist")
-        wishlist_layout = QVBoxLayout(wishlist_group)
-        self.wishlist_count_label = QLabel("0 items")
-        wishlist_layout.addWidget(self.wishlist_count_label)
-        self.wishlist_table = QTableWidget(0, 4)
-        self.wishlist_table.setHorizontalHeaderLabels(["Series", "Issue", "Volume", "CV Issue"])
-        self.wishlist_table.horizontalHeader().setStretchLastSection(True)
-        self.wishlist_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.wishlist_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.wishlist_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.wishlist_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.wishlist_table.verticalHeader().setVisible(False)
-        wishlist_layout.addWidget(self.wishlist_table, 1)
-
-        wishlist_actions = QHBoxLayout()
-        self.wishlist_search_button = QPushButton("Search")
-        self.wishlist_search_button.clicked.connect(self._wishlist_search_selected)
-        self.wishlist_download_button = QPushButton("Download")
-        self.wishlist_download_button.clicked.connect(self._wishlist_download_selected)
-        self.wishlist_download_all_button = QPushButton("Download all")
-        self.wishlist_download_all_button.clicked.connect(self._wishlist_download_all)
-        self.wishlist_remove_button = QPushButton("Remove")
-        self.wishlist_remove_button.clicked.connect(self._wishlist_remove_selected)
-        self.wishlist_clear_button = QPushButton("Clear")
-        self.wishlist_clear_button.clicked.connect(self._wishlist_clear)
-        for button in (
-            self.wishlist_search_button,
-            self.wishlist_download_button,
-            self.wishlist_download_all_button,
-            self.wishlist_remove_button,
-            self.wishlist_clear_button,
-        ):
-            wishlist_actions.addWidget(button)
-        wishlist_layout.addLayout(wishlist_actions)
-        left_splitter.addWidget(wishlist_group)
-        left_splitter.setStretchFactor(0, 3)
-        left_splitter.setStretchFactor(1, 2)
-        left_splitter.setSizes([260, 180])
-        left_layout.addWidget(left_splitter, 1)
-
-        dest_group = QGroupBox("Download destination")
-        dest_layout = QHBoxLayout(dest_group)
+        dest_row = QHBoxLayout()
+        dest_row.addWidget(QLabel("Download folder"))
         self.dest_input = QLineEdit(self._default_download_folder())
         self.dest_browse_button = QPushButton("Browse...")
         self.dest_browse_button.clicked.connect(self._browse_dest_folder)
-        dest_layout.addWidget(self.dest_input)
-        dest_layout.addWidget(self.dest_browse_button)
-        left_layout.addWidget(dest_group)
-
-        self.enrich_checkbox = QCheckBox("Enrich from Comic Vine after download")
+        dest_row.addWidget(self.dest_input, 1)
+        dest_row.addWidget(self.dest_browse_button)
+        self.enrich_checkbox = QCheckBox("Auto-enrich CBZ after download")
         self.enrich_checkbox.setChecked(self._auto_enrich_enabled())
-        left_layout.addWidget(self.enrich_checkbox)
+        dest_row.addWidget(self.enrich_checkbox)
+        outer.addLayout(dest_row)
 
-        splitter.addWidget(left)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        results_panel = QWidget()
+        results_layout = QVBoxLayout(results_panel)
+        results_layout.setContentsMargins(0, 0, SPACING["sm"], 0)
+        results_layout.addWidget(QLabel("Results"))
+        self.results_list = QListWidget()
+        self.results_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.results_list.currentItemChanged.connect(self._on_result_selected)
+        results_layout.addWidget(self.results_list, 1)
+        splitter.addWidget(results_panel)
 
         right = QWidget()
         right.setMinimumWidth(400)
@@ -296,9 +241,48 @@ class GetComicsPanel(QWidget):
         right_layout.addWidget(self.status_label)
 
         splitter.addWidget(right)
+
+        wishlist_panel = QWidget()
+        wishlist_panel.setMinimumWidth(260)
+        wishlist_layout = QVBoxLayout(wishlist_panel)
+        wishlist_layout.setContentsMargins(SPACING["sm"], 0, 0, 0)
+        wishlist_layout.addWidget(QLabel("Wishlist"))
+        self.wishlist_count_label = QLabel("0 items")
+        wishlist_layout.addWidget(self.wishlist_count_label)
+        self.wishlist_table = QTableWidget(0, 4)
+        self.wishlist_table.setHorizontalHeaderLabels(["Series", "Issue", "Volume", "CV Issue"])
+        self.wishlist_table.horizontalHeader().setStretchLastSection(True)
+        self.wishlist_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.wishlist_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.wishlist_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.wishlist_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.wishlist_table.verticalHeader().setVisible(False)
+        wishlist_layout.addWidget(self.wishlist_table, 1)
+        primary_wish = QHBoxLayout()
+        self.wishlist_download_button = QPushButton("Download")
+        self.wishlist_download_button.clicked.connect(self._wishlist_download_selected)
+        self.wishlist_download_all_button = QPushButton("Download all")
+        self.wishlist_download_all_button.clicked.connect(self._wishlist_download_all)
+        primary_wish.addWidget(self.wishlist_download_button)
+        primary_wish.addWidget(self.wishlist_download_all_button)
+        wishlist_layout.addLayout(primary_wish)
+        secondary_wish = QHBoxLayout()
+        self.wishlist_search_button = QPushButton("Search")
+        self.wishlist_search_button.clicked.connect(self._wishlist_search_selected)
+        self.wishlist_remove_button = QPushButton("Remove")
+        self.wishlist_remove_button.clicked.connect(self._wishlist_remove_selected)
+        self.wishlist_clear_button = QPushButton("Clear")
+        self.wishlist_clear_button.clicked.connect(self._wishlist_clear)
+        secondary_wish.addWidget(self.wishlist_search_button)
+        secondary_wish.addWidget(self.wishlist_remove_button)
+        secondary_wish.addWidget(self.wishlist_clear_button)
+        wishlist_layout.addLayout(secondary_wish)
+        splitter.addWidget(wishlist_panel)
+
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
-        splitter.setSizes([320, 680])
+        splitter.setStretchFactor(2, 2)
+        splitter.setSizes([280, 480, 300])
         outer.addWidget(splitter, 1)
         self.apply_theme(self._theme)
 
@@ -516,9 +500,17 @@ class GetComicsPanel(QWidget):
         dest = self._dest_path()
         if dest is None:
             return
+        auto_enrich = self.enrich_checkbox.isChecked()
+        if auto_enrich:
+            from comicdesk.ui.api_key_prompt import has_api_key, warn_missing_api_key
+
+            if not has_api_key(self.config):
+                warn_missing_api_key(
+                    self, "Auto-enrich after download from Comic Vine"
+                )
+                auto_enrich = False
         api_key = self.config.api_key if self.config else ""
         cache_enabled = self.config.cache_enabled if self.config else True
-        auto_enrich = self.enrich_checkbox.isChecked()
         logger.info(
             "getcomics_action_download issue=%s dest_dir=%s auto_enrich=%s selected_provider=%s",
             self._current_issue.url,
@@ -788,9 +780,17 @@ class GetComicsPanel(QWidget):
         dest = self._dest_path()
         if dest is None:
             return
+        auto_enrich = self.enrich_checkbox.isChecked()
+        if auto_enrich:
+            from comicdesk.ui.api_key_prompt import has_api_key, warn_missing_api_key
+
+            if not has_api_key(self.config):
+                warn_missing_api_key(
+                    self, "Auto-enrich after download from Comic Vine"
+                )
+                auto_enrich = False
         api_key = self.config.api_key if self.config else ""
         cache_enabled = self.config.cache_enabled if self.config else True
-        auto_enrich = self.enrich_checkbox.isChecked()
         item_id = self._download_queue.enqueue(
             issue,
             dest,

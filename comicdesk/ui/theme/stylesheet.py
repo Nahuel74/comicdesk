@@ -1,67 +1,8 @@
-"""Shared visual tokens and application-level Qt styles."""
+"""Qt stylesheet builders for ComicDesk."""
 
 from PySide6.QtGui import QFont
 
-THEMES = {
-    "dark": {
-        "canvas": "#1e1e1e",
-        "surface": "#252526",
-        "surface_alt": "#2b2b2b",
-        "border": "#3d3d3d",
-        "border_strong": "#4d4d4d",
-        "text": "#e0e0e0",
-        "text_secondary": "#b8b8b8",
-        "muted": "#808080",
-        "accent": "#0e639c",
-        "accent_hover": "#1177bb",
-        "accent_pressed": "#094771",
-        "selection": "#264f78",
-        "hover": "#2d2d2d",
-        "input_bg": "#3c3c3c",
-        "changed_field": "#1a3a5c",
-        "disabled_bg": "#3d3d3d",
-        "disabled_text": "#6d6d6d",
-        "syntax_tag": "#569cd6",
-        "syntax_attr": "#9cdcfe",
-        "syntax_quote": "#ce9178",
-        "gridline": "#2d2d2d",
-    },
-    "light": {
-        "canvas": "#f3f3f3",
-        "surface": "#ffffff",
-        "surface_alt": "#f5f5f5",
-        "border": "#d4d4d4",
-        "border_strong": "#c8c8c8",
-        "text": "#1e1e1e",
-        "text_secondary": "#424242",
-        "muted": "#6e6e6e",
-        "accent": "#0066b8",
-        "accent_hover": "#0078d4",
-        "accent_pressed": "#005a9e",
-        "selection": "#add6ff",
-        "hover": "#e8e8e8",
-        "input_bg": "#ffffff",
-        "changed_field": "#cce5ff",
-        "disabled_bg": "#e0e0e0",
-        "disabled_text": "#9e9e9e",
-        "syntax_tag": "#0000ff",
-        "syntax_attr": "#001080",
-        "syntax_quote": "#a31515",
-        "gridline": "#e0e0e0",
-    },
-}
-
-VALID_THEMES = frozenset(THEMES)
-
-COLORS = THEMES["dark"]
-
-SPACING = {"xs": 4, "sm": 8, "md": 12, "lg": 16}
-FONT_FAMILY = "Inter, Segoe UI, sans-serif"
-
-
-def colors_for(theme: str) -> dict:
-    """Return color tokens for *theme*, falling back to dark."""
-    return THEMES.get(theme, THEMES["dark"])
+from comicdesk.ui.theme.tokens import colors_for, FONT_FAMILY
 
 
 def application_font() -> QFont:
@@ -305,6 +246,59 @@ def application_stylesheet(theme: str = "dark") -> str:
         QToolTip {{
             color: {c['text']}; background-color: {c['surface_alt']};
             border: 1px solid {c['border_strong']};
+        }}
+        QWidget#primaryNav {{
+            background-color: {c['nav_bg']};
+            border-bottom: 1px solid {c['border']};
+        }}
+        QToolButton#navButton {{
+            border: none;
+            border-radius: 6px;
+            padding: 8px 14px;
+            color: {c['text_secondary']};
+            background: transparent;
+        }}
+        QToolButton#navButton:hover {{
+            background-color: {c['hover']};
+            color: {c['text']};
+        }}
+        QToolButton#navButton[active="true"] {{
+            background-color: {c['selection']};
+            color: {c['text']};
+            font-weight: 600;
+        }}
+        QToolButton#navButton[attention="true"] {{
+            border: 2px solid {c['accent']};
+            color: {c['text']};
+        }}
+        QLabel#navBadge {{
+            background-color: {c['accent']};
+            color: white;
+            border-radius: 9px;
+            padding: 1px 6px;
+            font-size: 11px;
+            font-weight: bold;
+            margin-left: -8px;
+            margin-top: -4px;
+        }}
+        QLabel#inlineHint {{
+            background-color: {c['changed_field']};
+            color: {c['text']};
+            border-bottom: 1px solid {c['accent']};
+            padding: 8px 16px;
+        }}
+        QWidget#panelChrome {{
+            background-color: {c['surface']};
+            border-bottom: 1px solid {c['border']};
+        }}
+        QLabel#panelChromeTitle {{
+            color: {c['text']};
+            font-size: 16px;
+            font-weight: 600;
+        }}
+        QLabel#panelChromeSubtitle {{
+            color: {c['muted']};
+            font-size: 12px;
         }}
         {_common_widget_styles(c)}
     """

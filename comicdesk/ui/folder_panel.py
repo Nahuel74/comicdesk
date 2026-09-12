@@ -89,7 +89,7 @@ class FolderPanel(QWidget):
         self.header = QWidget()
         header_layout = QHBoxLayout(self.header)
         header_layout.setContentsMargins(10, 6, 6, 6)
-        self.title_label = QLabel("FOLDERS")
+        self.title_label = QLabel("Folders")
         header_layout.addWidget(self.title_label)
         header_layout.addStretch()
         self.collapse_btn = self._button("‹", "Collapse folders sidebar")
@@ -180,8 +180,6 @@ class FolderPanel(QWidget):
         self._collapsed = not self._collapsed
         if self._collapsed:
             self._expanded_width = max(self.width(), self._expanded_width)
-            self.setMinimumWidth(48)
-            self.setMaximumWidth(48)
             self.navigation.hide()
             self.tree.hide()
             self.title_label.hide()
@@ -191,8 +189,6 @@ class FolderPanel(QWidget):
             self.collapse_btn.setText("›")
             self.collapse_btn.setToolTip("Expand folders sidebar")
         else:
-            self.setMaximumWidth(16777215)
-            self.setMinimumWidth(180)
             self.navigation.show()
             self.tree.show()
             self.title_label.show()
@@ -201,7 +197,6 @@ class FolderPanel(QWidget):
             self.scan_btn.setText("Scan for CBZ")
             self.collapse_btn.setText("‹")
             self.collapse_btn.setToolTip("Collapse folders sidebar")
-            self.resize(self._expanded_width, self.height())
             self._update_path_label()
         self.collapsed_changed.emit(self._collapsed)
 

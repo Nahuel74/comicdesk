@@ -29,7 +29,7 @@ ComicDesk is a PySide6 desktop application for managing local CBZ comic librarie
 - Import and export ComicRack CBL files (`Ctrl+I` / `Ctrl+E`)
 - Reconcile imported lists against the local library (CV ID first, then series/volume/issue)
 - Sort by release date, series+issue, volume, title, or manual reorder
-- Live CBL XML preview with syntax highlighting, copy, and maximize
+- Live CBL XML preview with syntax highlighting, copy, and select-all
 - Unsaved-changes indicator in the window title (`[*]`)
 
 ### Comic Vine Integration

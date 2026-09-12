@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 import comicdesk.config as config_module
 from comicdesk.ui.main_window import MainWindow
+from comicdesk.ui.shell.primary_nav import NAV_ACQUIRE, NAV_LIBRARY, NAV_METADATA
 from comicdesk.ui.theme import colors_for
 
 
@@ -20,23 +21,18 @@ def qapp():
 
 
 def test_main_window_builds_offscreen(qapp):
-    """MainWindow exposes all workspace panels and core tabs."""
+    """MainWindow exposes the app shell, panels, and workflow stack."""
     window = MainWindow()
 
-    assert window.splitter.count() == 3
-    assert window.folder_panel is window.splitter.widget(0)
-    assert window.comic_list is window.splitter.widget(1)
-    assert window.reading_list_panel is window.splitter.widget(2)
-    assert window.tabs.count() == 4
-    assert window.tabs.tabText(1) == "Metadata"
-    assert window.tabs.tabText(2) == "GetComics"
-    assert window.tabs.tabText(3) == "Downloads"
-    assert window.metadata_panel is window.tabs.widget(1)
-    assert window.getcomics_panel is window.tabs.widget(2)
-    assert window.download_queue_panel is window.tabs.widget(3)
+    assert window.app_shell is not None
+    assert window.folder_panel is window.folder_sidebar.folder_panel
+    assert window.comic_list is window.app_shell.comic_list
+    assert window.reading_list_panel is window.app_shell.reading_list_panel
+    assert window.metadata_panel is window.app_shell.metadata_panel
+    assert window.getcomics_panel is window.app_shell.getcomics_panel
+    assert window.download_queue_panel is window.app_shell.download_queue_panel
+    assert window.app_shell.stack.count() == 4
     assert window.menuBar().actions()
-    # A configured existing default folder starts scanning during construction;
-    # that status is real feedback and must not be suppressed for the smoke test.
     status = window.statusbar.currentMessage()
     assert status == "Ready" or status.startswith("Scanning: ")
 
@@ -53,7 +49,7 @@ def test_main_window_focuses_comic_in_metadata_tab(qapp):
 
     assert window.metadata_panel.comic is comic
     window._open_metadata_tab(comic)
-    assert window.tabs.currentWidget() is window.metadata_panel
+    assert window.app_shell.current_nav_id() == NAV_METADATA
     window.close()
 
 
@@ -81,4 +77,38 @@ def test_main_window_applies_light_theme(qapp, tmp_path, monkeypatch):
     assert window.config.theme == "light"
     app_stylesheet = QApplication.instance().styleSheet()
     assert colors_for("light")["canvas"] in app_stylesheet
+    window.close()
+
+
+def test_main_window_lists_attention_after_add(qapp):
+    from pathlib import Path
+    from comicdesk.models import Comic
+
+    window = MainWindow()
+    comic = Comic(Path("book.cbz"), series_name="Test", issue_number="1")
+    window.reading_list_panel.add_comic(comic)
+    window.app_shell.notify_lists_attention(1)
+    lists_button = window.app_shell.primary_nav._buttons["lists"]
+    assert lists_button.property("attention") is True
+    window.app_shell.navigate_to("lists")
+    assert lists_button.property("attention") in (False, None)
+    window.close()
+
+
+def test_folder_sidebar_hidden_on_lists(qapp):
+    window = MainWindow()
+    window.show()
+    window.app_shell.navigate_to("lists")
+    assert not window.folder_sidebar.isVisible()
+    window.app_shell.navigate_to("library")
+    assert window.folder_sidebar.isVisible()
+    window.close()
+
+
+def test_main_window_navigate_to_acquire(qapp):
+    window = MainWindow()
+    window.app_shell.navigate_to(NAV_ACQUIRE)
+    assert window.app_shell.current_nav_id() == NAV_ACQUIRE
+    window.app_shell.navigate_to(NAV_LIBRARY)
+    assert window.app_shell.current_nav_id() == NAV_LIBRARY
     window.close()
