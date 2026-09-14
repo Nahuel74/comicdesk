@@ -6,7 +6,7 @@ from comicdesk.models import Comic
 
 
 class MetadataInstanceModel(QAbstractTableModel):
-    COLUMNS = ("File", "Series", "Issue", "Status")
+    COLUMNS = ("File", "Series", "Issue", "Metadata status")
 
     def __init__(self, parent=None):
         super().__init__(parent)

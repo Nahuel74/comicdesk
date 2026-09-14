@@ -52,8 +52,13 @@ def identify_comic(comic: Comic, client) -> IdentificationResult:
         if listed:
             return IdentificationResult(STATUS_CANDIDATES, issues=listed)
 
-    parsed = parse_comic_filename(comic.path)
     series_name = (comic.series_name or "").strip()
+    if series_name and issue_number:
+        by_volume = _lookup_by_volume_and_issue(client, series_name, issue_number)
+        if by_volume.status != STATUS_EMPTY:
+            return by_volume
+
+    parsed = parse_comic_filename(comic.path)
     title = (comic.title or "").strip()
     queries = []
     if series_name and issue_number:
@@ -191,8 +196,41 @@ def _from_issue_search(
         return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
     if matches:
         return IdentificationResult(STATUS_CANDIDATES, issues=matches)
-    if results:
+    if results and not issue_number:
         return IdentificationResult(STATUS_CANDIDATES, issues=results)
+    return IdentificationResult(STATUS_EMPTY)
+
+
+def _lookup_by_volume_and_issue(
+    client, series_name: str, issue_number: str
+) -> IdentificationResult:
+    """Resolve an issue by series name and number via volume search + issue filter."""
+    try:
+        volumes = client.search_volume(series_name)
+    except Exception:
+        volumes = []
+    matched_volumes = [volume for volume in volumes if _series_matches(volume.name, series_name)]
+    if not matched_volumes:
+        matched_volumes = list(volumes[:5])
+    issues: list[ComicVineIssue] = []
+    seen_ids: set[str] = set()
+    for volume in matched_volumes[:8]:
+        try:
+            listed = client.list_issues(volume.id, issue_number)
+        except Exception:
+            continue
+        for candidate in listed:
+            if not _issue_matches(candidate.issue_number, issue_number):
+                continue
+            if candidate.id in seen_ids:
+                continue
+            seen_ids.add(candidate.id)
+            hydrated = _hydrate_exact_issue(client, candidate) or candidate
+            issues.append(hydrated)
+    if len(issues) == 1:
+        return IdentificationResult(STATUS_EXACT, issue=issues[0], issues=issues)
+    if issues:
+        return IdentificationResult(STATUS_CANDIDATES, issues=issues)
     return IdentificationResult(STATUS_EMPTY)
 
 

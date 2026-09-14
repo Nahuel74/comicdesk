@@ -64,6 +64,21 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Extract release notes for this tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            BEGIN { found=0 }
+            /^## \[/ {
+              if (found) { exit }
+              if (index($0, "[" ver "]") > 0) { found=1; next }
+            }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG section for [$VERSION]; using full CHANGELOG.md" >&2
+            cp CHANGELOG.md release-notes.md
+          fi
       - name: Package artifacts
         shell: bash
         run: |
@@ -74,7 +89,7 @@ jobs:
           mv comicdesk-windows.exe.tmp comicdesk-windows.exe
       - uses: softprops/action-gh-release@v2
         with:
-          body_path: CHANGELOG.md
+          body_path: release-notes.md
           files: |
             artifacts/comicdesk-linux.tar.gz
             artifacts/comicdesk-windows.exe

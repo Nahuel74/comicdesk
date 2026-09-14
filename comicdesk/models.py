@@ -64,6 +64,14 @@ class Comic:
         return bool(self.cv_series_id and self.cv_issue_id)
 
     @property
+    def has_local_file(self) -> bool:
+        """True when the comic is backed by a scanned CBZ path."""
+        if self.path is None:
+            return False
+        text = str(self.path)
+        return text not in {"", "."}
+
+    @property
     def release_date(self):
         """Return release date as datetime or None if year is missing."""
         if not self.year:
@@ -124,7 +132,7 @@ class ReadingList:
 
     def add_comic(self, comic: Comic) -> bool:
         """Add comic to list. Returns False if already exists."""
-        if any(c.path == comic.path for c in self.comics):
+        if any(self._same_comic(existing, comic) for existing in self.comics):
             return False
         self.comics.append(comic)
         return True
@@ -132,8 +140,16 @@ class ReadingList:
     def remove_comic(self, comic: Comic) -> bool:
         """Remove comic from list."""
         initial_len = len(self.comics)
-        self.comics = [c for c in self.comics if c.path != comic.path]
+        self.comics = [c for c in self.comics if not self._same_comic(c, comic)]
         return len(self.comics) < initial_len
+
+    @staticmethod
+    def _same_comic(left: Comic, right: Comic) -> bool:
+        from comicdesk.services.cbl_reader import comic_dedupe_key
+
+        if left.has_local_file and right.has_local_file:
+            return left.path == right.path
+        return comic_dedupe_key(left) == comic_dedupe_key(right)
 
     def sort_by(self, criterion: str, direction: str = "asc") -> None:
         """Sort by a supported criterion, keeping missing values at the end."""
@@ -199,6 +215,7 @@ class ComicVineVolume:
     person_credits: list[dict[str, str]] = field(default_factory=list)
     team_credits: list[str] = field(default_factory=list)
     age_rating: str = ""
+    image_url: str = ""
 
 
 @dataclass
@@ -225,6 +242,7 @@ class ComicVineIssue:
     age_rating: str = ""
     volume_start_year: str = ""
     volume_count_of_issues: str = ""
+    image_url: str = ""
 
 
 # ``ComicVineIssue`` is the API-facing name retained for compatibility.  The

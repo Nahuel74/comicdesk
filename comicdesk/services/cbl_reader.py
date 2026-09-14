@@ -222,6 +222,37 @@ def _identity(series: str, volume: str, issue: str):
     return (_normal(series), _normal(volume), _issue(issue))
 
 
+def comic_dedupe_key(comic: Comic) -> tuple:
+    """Return a stable deduplication key for a local or virtual list entry."""
+    return book_dedupe_key(
+        CBLBook(
+            series_name=comic.series_name,
+            volume=comic.volume,
+            issue_number=comic.issue_number,
+            cv_series_id=comic.cv_series_id,
+            cv_issue_id=comic.cv_issue_id,
+        )
+    )
+
+
+def ordered_comics_for_import(document: CBLDocument, staged: Iterable[Comic]) -> list[Comic]:
+    """Return one Comic per CBL book in document order (library match or virtual)."""
+    comics = list(staged)
+    used: set[int] = set()
+    ordered: list[Comic] = []
+    for book in _deduplicate(document.books):
+        candidate = _find_by_cv(book, comics, used)
+        if candidate is None:
+            candidate = _find_by_key(book, comics, used)
+        if candidate is None:
+            ordered.append(book.to_comic())
+            continue
+        used.add(id(candidate))
+        _enrich_from_cbl(candidate, book)
+        ordered.append(candidate)
+    return ordered
+
+
 def book_dedupe_key(book: CBLBook) -> tuple:
     """Return a stable deduplication key for a CBL reference."""
     if book.cv_issue_id:

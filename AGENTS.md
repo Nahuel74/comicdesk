@@ -2,54 +2,43 @@
 
 ## Project
 
-ComicDesk is a PySide6 desktop workstation for managing local CBZ comic libraries. It covers metadata editing (ComicInfo.xml), Comic Vine enrichment, ComicRack CBL reading lists, GetComics acquisition, wishlist tracking, and a sequential download queue.
+ComicDesk is a PySide6 desktop workstation for local CBZ libraries: metadata (ComicInfo.xml), Comic Vine enrichment, ComicRack CBL reading lists, GetComics acquisition, wishlist, and a sequential download queue.
 
 ## Run
 
 ```bash
 source venv/bin/activate
-python3 main.py            # start the app
-python -m pytest            # run all tests
-python -m pytest tests/test_models.py   # single file
-python -m pytest -k "test_name"         # single test
+python3 main.py
+python -m pytest
+python -m pytest tests/test_models.py
+python -m pytest -k "test_name"
 ```
 
 No linter, formatter, or type checker is configured.
 
-## Stack & Dependencies
+## Stack
 
-- Python 3.14
-- PySide6 — Qt GUI framework
-- httpx — HTTP client (Comic Vine API, GetComics downloads)
-- beautifulsoup4 — HTML parsing for GetComics
-- cloudscraper — Cloudflare-compatible scraping for GetComics pages
-- `h2` is in `requirements.txt` but unused at runtime (`http2=False` in `comicvine_api.py`)
+- Python 3.14, PySide6, httpx, beautifulsoup4, cloudscraper
+- `h2` in `requirements.txt` is unused at runtime (`http2=False` in `comicvine_api.py`)
 
 ## Packaging
 
-PyInstaller builds single-file executables for Linux and Windows.
-
 ```bash
-# Local build (Linux)
-./packaging/build_linux.sh           # output: dist/comicdesk
-bash packaging/verify_build.sh       # verify binary integrity
-
-# Local build (Windows)
-packaging\build_windows.bat          # output: dist\comicdesk.exe
+./packaging/build_linux.sh      # dist/comicdesk
+packaging\build_windows.bat     # dist\comicdesk.exe
+bash packaging/verify_build.sh
 ```
 
-- **Spec file**: `packaging/comicdesk.spec` — shared across platforms
-- **CI**: `.github/workflows/release.yml` — triggers on `v*` tags or manual dispatch
-- **Release flow**: push tag `v1.x.x` → tests run → Linux + Windows binaries built → GitHub Release created with changelog and artifacts
-- **Version source**: `comicdesk/__init__.py` (`__version__`)
-- **No external assets bundled** — theme is CSS-based, UI is code-only
+- Spec: `packaging/comicdesk.spec`
+- CI: `.github/workflows/release.yml` on `v*` tags
+- Version: `comicdesk/__init__.py` (`__version__`)
+- **Changelog**: edit `CHANGELOG.md` under `## [Unreleased]`; on release, rename that block to `## [x.y.z] - date`, bump `__version__`, tag `vx.y.z`. CI publishes only that version’s section to GitHub Releases.
 
 ## Architecture
 
-- **Entry**: `main.py` → `comicdesk.app.run()` → Qt event loop
-- **Config**: `~/.config/comicdesk/config.json` — migrated automatically from `~/.config/cbl-maker/` on first launch
-- **API cache**: `~/.config/comicdesk/cache/api_cache.json`
-- **Wishlist**: `~/.config/comicdesk/wishlist.json`
+- **Entry**: `main.py` → `comicdesk.app.run()`
+- **Config**: `~/.config/comicdesk/config.json` (non-destructive migration from `~/.config/cbl-maker/`)
+- **Cache / wishlist**: `~/.config/comicdesk/cache/api_cache.json`, `wishlist.json`
 
 ### Config keys
 
@@ -63,73 +52,59 @@ packaging\build_windows.bat          # output: dist\comicdesk.exe
 | `auto_enrich_after_download` | bool | `True` |
 | `theme` | str | `"dark"` |
 
-### UI tabs
+### UI (primary nav)
 
-| Tab | Key modules |
-|-----|-------------|
-| Workspace | `folder_panel`, `comic_list`, `reading_list_panel`, `cbl_preview` |
-| Metadata | `cbz_metadata_panel`, `cbz_metadata_workers` |
-| GetComics | `getcomics_panel`, `getcomics_workers` |
-| Downloads | `download_queue_panel` |
+| Tab | Modules |
+|-----|---------|
+| Library | `folder_panel` (sidebar), `comic_list`, `comic_list_workers` |
+| Metadata | `cbz_metadata_panel`, `cbz_metadata_workers`, `metadata_instance_model` |
+| Lists | `reading_list_panel`, `reading_list_header`, `add_reading_list_issue_dialog`, `cbl_preview` |
+| Acquire | `getcomics_panel`, `download_queue_panel`, `acquire_page` |
 
-Background workers live in `comic_list_workers.py`, `cbz_metadata_workers.py`, and `getcomics_workers.py`.
+Shell: `ui/shell/app_shell.py`, `primary_nav.py`. Background workers in `*_workers.py`.
 
-### Services
+### Services (selected)
 
-| Module | Responsibility |
-|--------|----------------|
-| `cbz_reader.py` / `cbz_writer.py` | Read/write ComicInfo.xml inside CBZ archives |
-| `cbl_reader.py` / `cbl_writer.py` | Parse/generate ComicRack CBL XML, reconciliation |
-| `comicinfo.py` | `FIELD_TAGS` — single source of truth for ComicInfo XML mapping |
-| `comicvine_api.py` | Comic Vine REST client with rate limiting and disk caching |
-| `comicvine_mapping.py` | Comic Vine DTO → `Comic` field mapping |
-| `identification.py` | Multi-strategy match of local comics to CV issues/volumes |
-| `metadata_session.py` | Transactional draft/commit/discard for metadata editing |
-| `getcomics.py` | GetComics HTML scraping, download, CBL-aware search ranking |
-| `download_queue.py` | Sequential download queue with Qt signals |
-| `wishlist.py` | Persistent missing-issue tracking and library reconciliation |
+| Module | Role |
+|--------|------|
+| `cbz_reader.py` / `cbz_writer.py` | ComicInfo in CBZ |
+| `cbl_reader.py` / `cbl_writer.py` | CBL parse/write, `reconcile_cbl`, `ordered_comics_for_import` |
+| `comicinfo.py` | `FIELD_TAGS` — ComicInfo field mapping |
+| `comicvine_api.py` | Comic Vine client, cache, rate limit |
+| `identification.py` | Match comics to issues/volumes (volume+issue lookup before broad search) |
+| `metadata_session.py` | Draft/commit metadata edits |
+| `getcomics.py` | Scrape, download, wishlist ranking |
+| `download_queue.py` | Sequential downloads |
+| `wishlist.py` | Persistent CBL references |
 
 ### Models
 
-- `Comic` — local file metadata with full ComicInfo + CV identifiers
-- `CBLBook` — frozen, path-less CBL reference (no `path` field by design)
-- `ReadingList` — named list of `Comic` with sort criteria
-- `ComicVineIssue` / `ComicVineVolume` — Comic Vine API DTOs
-- `ComicVineMetadata = ComicVineIssue` — alias in `models.py` for backward compatibility
+- `Comic` — file metadata + CV IDs; `has_local_file`, `status` (emoji for metadata completeness)
+- `CBLBook` — frozen CBL reference, no `path`
+- `ReadingList` — `Comic` entries (local or virtual); identity dedupe via `comic_dedupe_key`
+- `ComicVineIssue` / `ComicVineVolume` — API DTOs; `ComicVineMetadata = ComicVineIssue`
 
-## Code Conventions
+## Conventions
 
-- Dataclasses for models, config, and service DTOs
-- Atomic writes everywhere: temp file + `os.replace` (config, CBZ, wishlist, cache)
-- Background work via Qt threads/signals in `*_workers.py` modules
-- `FIELD_TAGS` in `comicinfo.py` is the single source of truth for ComicInfo fields
-- `CBLBook` is a frozen dataclass intentionally without a `path` field
-- Tests use `tmp_path` for filesystem isolation and `monkeypatch` for config path substitution
-- Structured logging in GetComics and download services
+- Dataclasses; atomic writes (temp + `os.replace`)
+- Qt threads/signals in `*_workers.py`
+- `CBLBook` stays path-less; don't add `path` to it
+- Tests: `tmp_path`, `monkeypatch` for config paths
 
 ## Gotchas
 
-- **Comic Vine search results are partial.** Always hydrate via `get_issue(id)` before reading credits, descriptions, or volume metadata.
-- **Volume field = start_year, never the database ID.** A past bug stored the CV volume ID in `Comic.volume`; code explicitly replaces that value.
-- **`http2=False` is hardcoded** in `comicvine_api.py`. The `h2` package in `requirements.txt` is unused at runtime.
-- **Atomic writes everywhere.** Both config and CBZ writes use temp file + `os.replace`. Don't introduce non-atomic save paths.
-- **CBL namespace dual-read.** Exports use `https://comicdesk.dev/xml/metadata`; imports also accept the legacy `https://cbl-maker.dev/xml/metadata` namespace. Must preserve both on read.
-- **XML limits enforced**: ComicInfo max 2MB/50K nodes/128 depth; CBL max 10MB/50K nodes/128 depth. Tests exercise these bounds.
-- **`CBLBook` is intentionally path-less.** CBL files contain references, not file paths. Don't add a `path` field to it.
-- **`ComicVineMetadata = ComicVineIssue`** — alias in `models.py` for backward compatibility. Both names refer to the same dataclass.
-- **Config migration is non-destructive.** `_migrate_legacy_config()` copies `~/.config/cbl-maker/` to `~/.config/comicdesk/` but does not delete the legacy directory.
-- **GetComics uses `cloudscraper`**, not a REST API. Cloudflare 403 → `CloudflareChallengeError`.
-- **Download queue is sequential** — one active download at a time. `needs_attention` pauses the queue for manual provider selection.
-- **Wishlist auto-reconciles** on library scan and download completion — don't duplicate that logic in UI code.
-- **`auto_enrich_after_download` applies only to `.cbz`** files after GetComics download.
-- **GetComics search ranking** requires score ≥ 40 and rejects ties.
-- **`Comic.status`** returns emoji (✅/⚠️/❌) based on CV ID completeness.
+- Hydrate search hits with `get_issue(id)` before credits/descriptions.
+- `Comic.volume` is publication/start year, not the CV volume database ID.
+- CBL export namespace `https://comicdesk.dev/xml/metadata`; import also accepts legacy `cbl-maker.dev`.
+- XML size/depth limits on ComicInfo and CBL (see tests).
+- **Reading lists** may include comics without a local CBZ (`has_local_file` false); CBL import uses `ordered_comics_for_import` to preserve full CBL order. Wishlist updates on import only after explicit user confirmation.
+- **Library table** has no status column; **Metadata** instance list shows **Metadata status**. Toolbar filter on Library still filters by enrichment state.
+- GetComics: `cloudscraper`; sequential download queue; `needs_attention` for manual provider pick.
+- Wishlist reconciles on library scan and download completion — don't duplicate in UI.
 
 ## Testing
 
-- pytest with default config (no `conftest.py`, no `pytest.ini`, no `pyproject.toml`)
-- 27 test files, ~170+ test functions
-- `test_cbz_reader.py` creates zip fixtures inline; no shared fixture files
-- API tests in `test_comicvine_api.py` hit the real API (no mocks) — may fail without network or with rate limits
-- GetComics HTML fixtures in `tests/fixtures/getcomics/`
-- Python 3.14 in the venv
+- pytest, no `conftest.py` / `pyproject.toml`
+- ~27 test files, ~230+ tests
+- `test_comicvine_api.py` may hit the real API (network/rate limits)
+- GetComics fixtures: `tests/fixtures/getcomics/`

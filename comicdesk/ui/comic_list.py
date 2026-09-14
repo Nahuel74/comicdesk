@@ -91,9 +91,11 @@ class ComicList(QWidget):
         actions_layout = QHBoxLayout(actions_row)
         actions_layout.setContentsMargins(12, 8, 12, 8)
         self.action_bar = ResponsiveActionBar()
-        self.enrich_btn = QPushButton("Enrich all from Comic Vine")
+        self.enrich_btn = QPushButton("Enrich all metadata")
         self.enrich_btn.setProperty("primary", True)
-        self.enrich_btn.setToolTip("Update and save Comic Vine metadata for every comic in this folder")
+        self.enrich_btn.setToolTip(
+            "Fetch and save external metadata for every comic in this folder"
+        )
         self.enrich_btn.clicked.connect(self._on_enrich)
         self.add_selected_btn = QPushButton("Add to list")
         self.add_selected_btn.setToolTip("Add the selected comics to the reading list")
@@ -103,7 +105,7 @@ class ComicList(QWidget):
         self.clear_selection_btn.setToolTip("Clear the current comic selection")
         self.clear_selection_btn.setEnabled(False)
         self.clear_selection_btn.clicked.connect(self._clear_selection)
-        self.action_bar.add_action(self.enrich_btn, "Enrich all from Comic Vine")
+        self.action_bar.add_action(self.enrich_btn, "Enrich all metadata")
         self.action_bar.add_action(self.add_selected_btn, "Add to reading list")
         self.action_bar.add_action(self.clear_selection_btn, "Clear selection")
         actions_layout.addWidget(self.action_bar, 1)
@@ -202,15 +204,15 @@ class ComicList(QWidget):
     def _on_enrich(self):
         from comicdesk.ui.api_key_prompt import ensure_api_key
 
-        if not ensure_api_key(self, self.config, "Updating metadata from Comic Vine"):
+        if not ensure_api_key(self, self.config, "Bulk metadata enrichment"):
             return
         answer = QMessageBox.question(self, "Confirm metadata update",
-            f"Update and permanently save Comic Vine metadata for all {len(self.comics)} comics?",
+            f"Update and permanently save external metadata for all {len(self.comics)} comics?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if answer != QMessageBox.StandardButton.Yes:
             return
-        self.status_label.setText("Updating all metadata from Comic Vine...")
+        self.status_label.setText("Updating metadata for all comics…")
         self.enrich_btn.setEnabled(False)
         self.enrich_worker = EnrichWorker(
             self.comics,

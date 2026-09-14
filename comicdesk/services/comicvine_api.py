@@ -35,6 +35,17 @@ class InvalidAPIKeyError(ComicVineError):
     pass
 
 
+def _image_url_from_result(result: dict) -> str:
+    image = result.get("image")
+    if not isinstance(image, dict):
+        return ""
+    for key in ("thumb_url", "small_url", "medium_url", "icon_url", "super_url"):
+        url = str(image.get(key) or "").strip()
+        if url and "no-image" not in url.casefold():
+            return url.replace("http://", "https://", 1)
+    return ""
+
+
 def _parse_issue_response(result: dict) -> ComicVineIssue:
     """Parse API response into ComicVineIssue."""
     if not isinstance(result, dict):
@@ -64,6 +75,7 @@ def _parse_issue_response(result: dict) -> ComicVineIssue:
         age_rating=result.get("age_rating") or "",
         volume_start_year=str(volume.get("start_year") or ""),
         volume_count_of_issues=str(volume.get("count_of_issues") or ""),
+        image_url=_image_url_from_result(result),
     )
 
 
@@ -86,6 +98,7 @@ def _parse_volume_response(result: dict) -> ComicVineVolume:
         person_credits=result.get("person_credits") or [],
         team_credits=_names(result.get("team_credits")),
         age_rating=result.get("age_rating") or "",
+        image_url=_image_url_from_result(result),
     )
 
 
@@ -96,10 +109,10 @@ def _names(values) -> list[str]:
 
 ISSUE_FIELDS = ("id,volume,issue_number,name,cover_date,store_date,site_detail_url,description,"
                 "publisher,genres,character_credits,concept_credits,location_credits,"
-                "person_credits,story_arc_credits,team_credits,age_rating")
+                "person_credits,story_arc_credits,team_credits,age_rating,image")
 VOLUME_FIELDS = ("id,name,start_year,count_of_issues,site_detail_url,description,"
                  "publisher,genres,character_credits,concept_credits,location_credits,"
-                 "person_credits,team_credits,age_rating")
+                 "person_credits,team_credits,age_rating,image")
 
 
 class ComicVineClient:

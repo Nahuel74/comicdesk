@@ -3,7 +3,9 @@ from copy import copy, deepcopy
 from pathlib import Path
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -20,9 +22,15 @@ from PySide6.QtWidgets import (
 
 from comicdesk.config import Config
 from comicdesk.models import Comic, ReadingList
-from comicdesk.services.cbl_reader import CBLParseError, read_cbl, reconcile_cbl
+from comicdesk.services.cbl_reader import (
+    CBLParseError,
+    ordered_comics_for_import,
+    read_cbl,
+    reconcile_cbl,
+)
 from comicdesk.services.cbl_writer import generate_cbl, save_cbl
 from comicdesk.services.wishlist import WishlistManager
+from comicdesk.ui.add_reading_list_issue_dialog import AddReadingListIssueDialog
 from comicdesk.ui.reading_list_header import ReadingListHeader
 from comicdesk.ui.reading_list_sort import ReadingListSort
 from comicdesk.ui.cbl_preview import CBLPreview
@@ -61,12 +69,14 @@ class ReadingListPanel(QWidget):
         self.save_btn = self.header.save_btn
         self.export_btn = self.header.export_btn
         self.import_btn = self.header.import_btn
+        self.add_issue_btn = self.header.add_issue_btn
         self.save_btn.setObjectName("primarySaveButton")
         self.save_btn.setDefault(True)
         self.header.clear_requested.connect(self.clear_list)
         self.header.save_requested.connect(self.save_list)
         self.header.export_requested.connect(self.export_cbl)
         self.header.import_requested.connect(self.import_cbl)
+        self.header.add_issue_requested.connect(self._add_issue_dialog)
         self.header.name_changed.connect(self._on_name_changed)
         layout.addWidget(self.header)
 
@@ -247,8 +257,11 @@ class ReadingListPanel(QWidget):
             self.table.setItem(row, 2, QTableWidgetItem(str(row + 1)))
             series_label = comic.series_name or "—"
             series_item = QTableWidgetItem(series_label)
-            if series_label != "—":
-                series_item.setToolTip(series_label)
+            if comic.has_local_file:
+                if series_label != "—":
+                    series_item.setToolTip(str(comic.path))
+            else:
+                series_item.setToolTip("Not in library")
             self.table.setItem(row, self._COL_SERIES, series_item)
             self.table.setItem(row, self._COL_VOLUME, QTableWidgetItem(comic.volume or "—"))
             self.table.setItem(row, self._COL_ISSUE, QTableWidgetItem(comic.issue_number or "—"))
@@ -260,10 +273,15 @@ class ReadingListPanel(QWidget):
             self.table.setItem(
                 row, self._COL_RELEASE, QTableWidgetItem(self._display_release_date(comic)),
             )
-            file_name = Path(comic.path).name if comic.path else "—"
-            file_item = QTableWidgetItem(file_name)
-            if comic.path:
+            if comic.has_local_file:
+                file_label = Path(comic.path).name
+                file_item = QTableWidgetItem(file_label)
                 file_item.setToolTip(str(comic.path))
+            else:
+                file_item = QTableWidgetItem("Not in library")
+                file_item.setToolTip("No local CBZ file linked")
+                muted = QColor(colors_for(self._theme)["muted"])
+                file_item.setForeground(muted)
             self.table.setItem(row, self._COL_FILE, file_item)
             remove = self._row_remove_button(lambda _, r=row: self._remove_at(r))
             self.table.setCellWidget(
@@ -314,6 +332,15 @@ class ReadingListPanel(QWidget):
 
     def set_wishlist_manager(self, manager: WishlistManager | None) -> None:
         self._wishlist_manager = manager
+
+    def _add_issue_dialog(self) -> None:
+        dialog = AddReadingListIssueDialog(self.config, self)
+        dialog.apply_theme(self._theme)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        comic = dialog.built_comic()
+        if comic is not None:
+            self.add_comic(comic)
 
     def shutdown_workers(self):
         """Stop work owned by this panel before the window closes."""
@@ -366,32 +393,17 @@ class ReadingListPanel(QWidget):
             self.status_message.emit(f"Import failed: {error}")
             return
 
-        wishlist_summary = ""
-        if document.books and not result.missing_files:
-            QMessageBox.information(
-                self,
-                "Import CBL",
-                "All issues in this reading list are already available in your local library.",
-            )
-        elif result.missing_files and self._wishlist_manager is not None:
-            add_result = self._wishlist_manager.add_books(result.missing_files)
-            if add_result.added:
-                self.wishlist_items_added.emit(add_result.added)
-            wishlist_summary = (
-                f"Wishlist: {add_result.added} added"
-                f"{f', {add_result.skipped_duplicates} duplicate(s) skipped' if add_result.skipped_duplicates else ''}"
-                f" (see GetComics tab).\n"
-            )
+        linked = len(result.matches)
+        missing = len(result.missing_files)
+        total = linked + missing
 
         summary = (
-            f"Matches: {len(result.matches)}\n"
-            f"New: {len(result.new_issues)}\n"
-            f"Not located: {len(result.missing_files)}\n"
+            f"This reading list has {total} issue"
+            f"{'' if total == 1 else 's'}: {linked} linked to files in your library, "
+            f"{missing} not found on disk.\n\n"
+            "Replace the current reading list with this import?"
         )
-        if wishlist_summary:
-            summary += f"\n{wishlist_summary}"
-        summary += f"\nUpdate the reading list with {len(result.matches)} located comics?"
-        title = "Update Reading List"
+        title = "Import Reading List"
         if self.is_dirty:
             summary = "The current reading list has unsaved changes.\n\n" + summary
         answer = QMessageBox.question(
@@ -402,20 +414,40 @@ class ReadingListPanel(QWidget):
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        matches = []
-        for matched in result.matches:
-            comic = staged_to_original.get(id(matched), matched)
-            if comic is not matched:
-                if not comic.cv_series_id and matched.cv_series_id:
-                    comic.cv_series_id = matched.cv_series_id
-                if not comic.cv_issue_id and matched.cv_issue_id:
-                    comic.cv_issue_id = matched.cv_issue_id
-                if comic.cv_metadata is None and matched.cv_metadata is not None:
-                    comic.cv_metadata = matched.cv_metadata
-            matches.append(comic)
+        wishlist_added = 0
+        if missing > 0 and self._wishlist_manager is not None:
+            wishlist_answer = QMessageBox.question(
+                self,
+                "Add to Wishlist",
+                f"Add the {missing} missing issue"
+                f"{'' if missing == 1 else 's'} to your Wishlist?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if wishlist_answer == QMessageBox.StandardButton.Yes:
+                add_result = self._wishlist_manager.add_books(result.missing_files)
+                wishlist_added = add_result.added
+                if add_result.added:
+                    self.wishlist_items_added.emit(add_result.added)
+
+        ordered = ordered_comics_for_import(document, staged)
+        comics = []
+        for entry in ordered:
+            if entry.has_local_file:
+                comic = staged_to_original.get(id(entry), entry)
+                if comic is not entry:
+                    if not comic.cv_series_id and entry.cv_series_id:
+                        comic.cv_series_id = entry.cv_series_id
+                    if not comic.cv_issue_id and entry.cv_issue_id:
+                        comic.cv_issue_id = entry.cv_issue_id
+                    if comic.cv_metadata is None and entry.cv_metadata is not None:
+                        comic.cv_metadata = entry.cv_metadata
+                comics.append(comic)
+            else:
+                comics.append(entry)
         self.reading_list = ReadingList(
             name=document.name,
-            comics=matches,
+            comics=comics,
             ordered_by=document.ordered_by,
             order_direction=document.order_direction,
         )
@@ -426,9 +458,11 @@ class ReadingListPanel(QWidget):
         self._update_preview()
         self._set_dirty(True)
         self._emit_list_changed_if_needed(previous)
-        status = f"Imported {len(result.matches)} comics; {len(result.missing_files)} not located"
-        if wishlist_summary:
-            status += f"; wishlist updated"
+        status = (
+            f"Imported reading list: {linked} linked, {missing} not in library"
+        )
+        if wishlist_added:
+            status += f"; {wishlist_added} added to wishlist"
         self.status_message.emit(status)
     def _sync_sort_controls(self):
         criterion = self.reading_list.ordered_by

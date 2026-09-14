@@ -45,3 +45,15 @@ def test_move_extremes_do_not_duplicate_or_reorder():
     reading_list.move_comic(second, 1)
     assert reading_list.comics == [first, second]
     assert len({item.path for item in reading_list.comics}) == 2
+
+
+def test_virtual_entries_dedupe_by_identity_not_empty_path():
+    reading_list = ReadingList("test")
+    first = Comic(path=Path(), series_name="Saga", issue_number="1")
+    second = Comic(path=Path(), series_name="Saga", issue_number="2")
+    third = Comic(path=Path(), series_name="Saga", issue_number="1")
+
+    assert reading_list.add_comic(first) is True
+    assert reading_list.add_comic(second) is True
+    assert reading_list.add_comic(third) is False
+    assert len(reading_list.comics) == 2

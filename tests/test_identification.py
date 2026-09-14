@@ -86,6 +86,52 @@ def test_ambiguous_scoped_results_are_candidates_not_first_result():
     assert result.candidates == [first, second]
 
 
+def test_series_and_number_uses_volume_lookup_before_broad_search():
+    volume = SimpleNamespace(id="100", name="The Amazing Spider-Man")
+    asm61 = issue(
+        "61",
+        series_id="100",
+        series_name="The Amazing Spider-Man",
+        number="61",
+        name="The Darkness Calls",
+        store_date="2004-08-01",
+    )
+    noise = issue("99", series_name="The Amazing Spider-Man", number="12", name="Other")
+    comic = Comic(Path(), series_name="The Amazing Spider-Man", issue_number="61")
+
+    class VolumeClient(Client):
+        def get_issue(self, issue_id):
+            self.calls.append(("get_issue", issue_id))
+            if issue_id == "61":
+                return asm61
+            return issue(issue_id, number="0")
+
+    client = VolumeClient(volumes=[volume], listed=[asm61], searched=[noise])
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue is not None
+    assert result.issue.name == "The Darkness Calls"
+    assert result.issue.issue_number == "61"
+    assert ("search_volume", "The Amazing Spider-Man") in client.calls
+    assert ("list_issues", "100", "61") in client.calls
+    assert not any(call[0] == "search_issue" for call in client.calls)
+
+
+def test_issue_search_does_not_return_other_numbers_when_filter_misses():
+    noise = [
+        issue("1", series_name="The Amazing Spider-Man", number="12"),
+        issue("2", series_name="The Amazing Spider-Man", number="88"),
+    ]
+    comic = Comic(Path(), series_name="The Amazing Spider-Man", issue_number="61")
+    client = Client(searched=noise)
+
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EMPTY
+    assert result.issues == []
+
+
 def test_series_volume_and_number_disambiguate_search_results():
     found = issue("21", series_name="Saga", volume="2", number="3")
     comic = Comic(Path("local.cbz"), series_name=" saga ", volume="2",
@@ -96,7 +142,7 @@ def test_series_volume_and_number_disambiguate_search_results():
 
     assert result.status == STATUS_EXACT
     assert result.issue is found
-    assert client.calls[0] == ("search_issue", "saga #03")
+    assert ("search_issue", "saga #03") in client.calls
 
 
 def test_search_can_use_series_and_title_when_number_is_missing():

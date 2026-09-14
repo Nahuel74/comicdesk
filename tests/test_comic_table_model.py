@@ -22,16 +22,15 @@ def _comic(name, **kwargs):
     return Comic(path=Path(name), series_name="Series", issue_number="1", **kwargs)
 
 
-def test_reading_list_is_last_column_and_status_is_unchanged(qapp):
+def test_reading_list_is_last_column(qapp):
     comic = _comic("issue.cbz", cv_series_id="series-1", cv_issue_id="issue-1")
     model = ComicTableModel([comic])
 
     assert model.columnCount() == len(ComicTableModel.HEADERS)
-    assert model.headerData(5, Qt.Horizontal) == "Status"
-    assert model.headerData(6, Qt.Horizontal) == "Reading list"
-    assert model.data(model.index(0, 5)) == "✅"
-    assert model.data(model.index(0, 6)) == "—"
-    assert model.data(model.index(0, 6), Qt.ToolTipRole) == "Not in reading list"
+    indicator = ComicTableModel.HEADERS.index("Reading list")
+    assert model.headerData(indicator, Qt.Horizontal) == "Reading list"
+    assert model.data(model.index(0, indicator)) == "—"
+    assert model.data(model.index(0, indicator), Qt.ToolTipRole) == "Not in reading list"
 
 
 def test_indicator_marks_present_and_absent_comics(qapp):
@@ -79,7 +78,8 @@ def test_membership_uses_stable_identity_not_object_identity(qapp):
         cv_series_id="series-7", cv_issue_id="issue-8",
     )
     model = ComicTableModel([local_comic], reading_list=ReadingList("IDs", [listed_by_ids]))
-    assert model.data(model.index(0, 6)) == "✅"
+    indicator = ComicTableModel.HEADERS.index("Reading list")
+    assert model.data(model.index(0, indicator)) == "✅"
 
     listed_by_fields = Comic(path=Path(), series_name="Saga", volume="2", issue_number="3")
     local_copy = Comic(
@@ -87,7 +87,14 @@ def test_membership_uses_stable_identity_not_object_identity(qapp):
     )
     model.set_comics([local_copy])
     model.set_reading_list(ReadingList("Fields", [listed_by_fields]))
-    assert model.data(model.index(0, 6)) == "✅"
+    assert model.data(model.index(0, indicator)) == "✅"
+
+
+def test_name_column_shows_issue_title(qapp):
+    comic = _comic("issue.cbz", title="The Big Fight")
+    model = ComicTableModel([comic])
+    name_col = ComicTableModel.HEADERS.index("Name")
+    assert model.data(model.index(0, name_col)) == "The Big Fight"
 
 
 def test_status_and_text_filters_are_not_affected_by_indicator(qapp):
@@ -100,11 +107,11 @@ def test_status_and_text_filters_are_not_affected_by_indicator(qapp):
 
     proxy.set_status(proxy.STATUS_ENRICHED)
     assert proxy.rowCount() == 1
-    assert proxy.data(proxy.index(0, 5)) == "✅"
+    assert proxy.sourceModel().comic_at(0).has_cv_ids
     proxy.set_status(proxy.STATUS_PARTIAL)
     assert proxy.rowCount() == 1
-    assert proxy.data(proxy.index(0, 5)) == "⚠️"
     proxy.set_status(proxy.STATUS_PENDING)
     proxy.set_query("unique title")
     assert proxy.rowCount() == 1
-    assert proxy.data(proxy.index(0, 6)) == "—"
+    indicator = ComicTableModel.HEADERS.index("Reading list")
+    assert proxy.data(proxy.index(0, indicator)) == "—"

@@ -10,6 +10,7 @@ from comicdesk.services.cbl_reader import (
     MAX_CBL_BYTES,
     MAX_CBL_DEPTH,
     MAX_CBL_NODES,
+    ordered_comics_for_import,
     read_cbl,
     reconcile_cbl,
 )
@@ -147,3 +148,17 @@ def test_reads_legacy_cbl_maker_namespace():
     assert document.books[0].cv_metadata is not None
     assert document.books[0].cv_metadata.id == "20"
     assert document.books[0].cv_metadata.series_id == "10"
+
+
+def test_ordered_comics_for_import_keeps_missing_entries_in_cbl_order():
+    document = read_cbl(XML)
+    local = Comic(Path("one.cbz"), series_name="Saga", volume="1", issue_number="2")
+    ordered = ordered_comics_for_import(document, [local])
+
+    assert len(ordered) == 2
+    assert ordered[0] is local
+    assert ordered[0].has_local_file
+    assert not ordered[1].has_local_file
+    assert ordered[1].series_name == "Saga"
+    assert ordered[1].volume == "2"
+    assert ordered[1].issue_number == "2"

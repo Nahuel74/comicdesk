@@ -1,5 +1,22 @@
 # Changelog
 
+All notable changes are documented here. New releases add a section at the top (`## [x.y.z] - date`); older entries stay below. GitHub release notes use only the section for the tagged version.
+
+## [Unreleased]
+
+## [1.6.0] - 2026-09-14
+
+### Added
+
+- Library table **Name** column; Lists **Add issue** with metadata search; reading lists keep non-local CBL entries
+- CBL import summary, optional wishlist confirmation, and full-list import order
+
+### Changed
+
+- Library: no status column (filter unchanged); Metadata instance column **Metadata status**
+- Bulk enrichment labeled **Enrich all metadata**; README and AGENTS updated
+- GitHub Releases use only the changelog section for the tagged version
+
 ## [1.5.0] - 2026-09-12
 
 ### Added

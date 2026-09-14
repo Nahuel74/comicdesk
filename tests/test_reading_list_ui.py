@@ -28,16 +28,38 @@ def panel(qapp):
     widget.close()
 
 
-def _stub_import(monkeypatch, document, result, answer=QMessageBox.StandardButton.Yes,
-                 path="import.cbl"):
+def _stub_import(
+    monkeypatch,
+    document,
+    result,
+    answer=QMessageBox.StandardButton.Yes,
+    wishlist_answer=QMessageBox.StandardButton.Yes,
+    path="import.cbl",
+):
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *args: (path, ""))
     monkeypatch.setattr("comicdesk.ui.reading_list_panel.read_cbl", lambda _path: document)
     monkeypatch.setattr(
         "comicdesk.ui.reading_list_panel.reconcile_cbl",
         lambda _document, _comics: result,
     )
-    monkeypatch.setattr(QMessageBox, "question", lambda *args: answer)
+
+    def question(_parent, title, *_rest):
+        if title == "Add to Wishlist":
+            return wishlist_answer
+        return answer
+
+    monkeypatch.setattr(QMessageBox, "question", question)
     monkeypatch.setattr(QMessageBox, "information", lambda *args: None)
+
+
+def _book_for_comic(comic: Comic) -> CBLBook:
+    return CBLBook(
+        series_name=comic.series_name,
+        volume=comic.volume,
+        issue_number=comic.issue_number,
+        cv_series_id=comic.cv_series_id,
+        cv_issue_id=comic.cv_issue_id,
+    )
 
 
 def test_valid_rename_updates_model_and_cancel_restores(panel):
@@ -169,9 +191,15 @@ def test_save_without_import_path_uses_export_dialog(panel, monkeypatch):
 
 def test_save_writes_imported_cbl_path(panel, monkeypatch, tmp_path):
     comic = Comic(path="issue.cbz", series_name="Series", issue_number="1")
-    document = CBLDocument(name="Imported", books=[], ordered_by="manual", order_direction="asc")
+    document = CBLDocument(
+        name="Imported",
+        books=[_book_for_comic(comic)],
+        ordered_by="manual",
+        order_direction="asc",
+    )
     result = ReconciliationResult(matches=[comic], new_issues=[], missing_files=[])
     cbl_path = tmp_path / "reading.cbl"
+    panel.set_available_comics([comic])
     _stub_import(monkeypatch, document, result, path=str(cbl_path))
     panel.import_cbl()
     assert panel._source_cbl_path == cbl_path
@@ -289,12 +317,15 @@ def test_dirty_import_confirmation_mentions_unsaved_changes_and_can_be_declined(
     assert panel.is_dirty is True
 
 def test_import_yes_explicitly_replaces_existing_list(panel, monkeypatch):
-    current = Comic(path="current.cbz", series_name="Current", issue_number="1")
-    imported = Comic(path="imported.cbz", series_name="Imported", issue_number="2")
+    current = Comic(path="current.cbz", series_name="Current", issue_number="1", volume="1")
+    imported = Comic(path="imported.cbz", series_name="Imported", issue_number="2", volume="1")
     panel.add_comic(current)
+    panel.set_available_comics([imported])
     _stub_import(
-        monkeypatch, CBLDocument("Imported List", [], "manual", "asc"),
-        ReconciliationResult([imported], [], []), path="next.cbl",
+        monkeypatch,
+        CBLDocument("Imported List", [_book_for_comic(imported)], "manual", "asc"),
+        ReconciliationResult([imported], [], []),
+        path="next.cbl",
     )
 
     panel.import_cbl()
@@ -304,10 +335,13 @@ def test_import_yes_explicitly_replaces_existing_list(panel, monkeypatch):
     assert panel.is_dirty is True
 
 def test_import_syncs_sorted_controls_from_document(panel, monkeypatch):
-    imported = Comic(path="imported.cbz", series_name="Imported", issue_number="2")
+    imported = Comic(path="imported.cbz", series_name="Imported", issue_number="2", volume="1")
+    panel.set_available_comics([imported])
     _stub_import(
-        monkeypatch, CBLDocument("Sorted", [], "title", "desc"),
-        ReconciliationResult([imported], [], []), path="sorted.cbl",
+        monkeypatch,
+        CBLDocument("Sorted", [_book_for_comic(imported)], "title", "desc"),
+        ReconciliationResult([imported], [], []),
+        path="sorted.cbl",
     )
 
     panel.import_cbl()
@@ -317,10 +351,13 @@ def test_import_syncs_sorted_controls_from_document(panel, monkeypatch):
 
 
 def test_import_syncs_manual_control_from_document(panel, monkeypatch):
-    imported = Comic(path="imported.cbz", series_name="Imported", issue_number="2")
+    imported = Comic(path="imported.cbz", series_name="Imported", issue_number="2", volume="1")
+    panel.set_available_comics([imported])
     _stub_import(
-        monkeypatch, CBLDocument("Manual", [], "manual", "asc"),
-        ReconciliationResult([imported], [], []), path="manual.cbl",
+        monkeypatch,
+        CBLDocument("Manual", [_book_for_comic(imported)], "manual", "asc"),
+        ReconciliationResult([imported], [], []),
+        path="manual.cbl",
     )
 
     panel.import_cbl()
@@ -341,17 +378,19 @@ def test_importing_empty_list_replaces_contents_and_updates_controls(panel, monk
     assert panel.count_label.text() == "0 items"
     assert panel.clear_btn.isEnabled() is False
     assert panel.export_btn.isEnabled() is False
-    assert messages == ["Imported 0 comics; 0 not located"]
+    assert messages == ["Imported reading list: 0 linked, 0 not in library"]
 
 
 def test_import_adds_missing_items_to_wishlist(panel, monkeypatch, tmp_path):
     wishlist = WishlistManager(path=tmp_path / "wishlist.json")
     panel.set_wishlist_manager(wishlist)
     missing = CBLBook(series_name="Missing", issue_number="3", cv_issue_id="42")
-    imported = Comic(path="found.cbz", series_name="Found", issue_number="1")
+    imported = Comic(path="found.cbz", series_name="Found", issue_number="1", volume="1")
+    found_book = _book_for_comic(imported)
+    panel.set_available_comics([imported])
     _stub_import(
         monkeypatch,
-        CBLDocument("Mixed", [missing]),
+        CBLDocument("Mixed", [found_book, missing]),
         ReconciliationResult([imported], [], [missing]),
     )
 
@@ -359,7 +398,10 @@ def test_import_adds_missing_items_to_wishlist(panel, monkeypatch, tmp_path):
 
     assert len(wishlist.items()) == 1
     assert wishlist.items()[0].cv_issue_id == "42"
-    assert panel.reading_list.comics == [imported]
+    assert len(panel.reading_list.comics) == 2
+    assert panel.reading_list.comics[0].has_local_file
+    assert str(panel.reading_list.comics[0].path).endswith("found.cbz")
+    assert not panel.reading_list.comics[1].has_local_file
 
 
 def test_import_skips_duplicate_wishlist_items(panel, monkeypatch, tmp_path):
@@ -367,10 +409,11 @@ def test_import_skips_duplicate_wishlist_items(panel, monkeypatch, tmp_path):
     missing = CBLBook(series_name="Missing", issue_number="3", cv_issue_id="42")
     wishlist.add_books([missing])
     panel.set_wishlist_manager(wishlist)
-    imported = Comic(path="found.cbz", series_name="Found", issue_number="1")
+    imported = Comic(path="found.cbz", series_name="Found", issue_number="1", volume="1")
+    panel.set_available_comics([imported])
     _stub_import(
         monkeypatch,
-        CBLDocument("Mixed", [missing]),
+        CBLDocument("Mixed", [_book_for_comic(imported), missing]),
         ReconciliationResult([imported], [], [missing]),
     )
 
@@ -379,10 +422,46 @@ def test_import_skips_duplicate_wishlist_items(panel, monkeypatch, tmp_path):
     assert len(wishlist.items()) == 1
 
 
-def test_import_all_matched_shows_information(panel, monkeypatch):
+def test_import_does_not_touch_wishlist_when_declined(panel, monkeypatch, tmp_path):
+    wishlist = WishlistManager(path=tmp_path / "wishlist.json")
+    panel.set_wishlist_manager(wishlist)
+    missing = CBLBook(series_name="Missing", issue_number="3", cv_issue_id="42")
+    _stub_import(
+        monkeypatch,
+        CBLDocument("Mixed", [missing]),
+        ReconciliationResult([], [], [missing]),
+        wishlist_answer=QMessageBox.StandardButton.No,
+    )
+
+    panel.import_cbl()
+
+    assert wishlist.items() == []
+    assert len(panel.reading_list.comics) == 1
+    assert not panel.reading_list.comics[0].has_local_file
+
+
+def test_import_keeps_missing_entries_in_reading_list(panel, monkeypatch):
+    missing = CBLBook(series_name="Missing", issue_number="9")
+    imported = Comic(path="found.cbz", series_name="Found", issue_number="1", volume="1")
+    panel.set_available_comics([imported])
+    _stub_import(
+        monkeypatch,
+        CBLDocument("Mixed", [_book_for_comic(imported), missing]),
+        ReconciliationResult([imported], [], [missing]),
+        wishlist_answer=QMessageBox.StandardButton.No,
+    )
+
+    panel.import_cbl()
+
+    assert len(panel.reading_list.comics) == 2
+    assert panel.table.item(1, panel._COL_FILE).text() == "Not in library"
+
+
+def test_import_all_matched_does_not_show_extra_information_dialog(panel, monkeypatch):
     info_calls = []
-    book = CBLBook(series_name="Found", issue_number="1")
-    comic = Comic(path="found.cbz", series_name="Found", issue_number="1")
+    comic = Comic(path="found.cbz", series_name="Found", issue_number="1", volume="1")
+    book = CBLBook(series_name="Found", issue_number="1", volume="1")
+    panel.set_available_comics([comic])
     _stub_import(
         monkeypatch,
         CBLDocument("Complete", [book]),
@@ -396,8 +475,7 @@ def test_import_all_matched_shows_information(panel, monkeypatch):
 
     panel.import_cbl()
 
-    assert info_calls
-    assert "already available" in info_calls[0]
+    assert info_calls == []
 
 
 def test_reading_list_displays_series_name_not_title(panel):

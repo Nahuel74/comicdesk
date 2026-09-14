@@ -9,8 +9,7 @@ from comicdesk.services.cbl_reader import _identity, _normal
 class ComicTableModel(QAbstractTableModel):
     """Table model backed by a list of Comic objects."""
 
-    HEADERS = ["File", "Series", "Number", "Volume", "Year", "Status",
-               "Reading list"]
+    HEADERS = ["File", "Series", "Number", "Name", "Volume", "Year", "Reading list"]
     COMIC_ROLE = Qt.UserRole + 1
 
     def __init__(self, comics=None, parent=None, reading_list=None):
@@ -33,9 +32,15 @@ class ComicTableModel(QAbstractTableModel):
         if not index.isValid() or not (0 <= index.row() < len(self.comics)):
             return None
         comic = self.comics[index.row()]
-        values = (comic.path.name, comic.series_name, comic.issue_number,
-                  comic.volume, comic.year, comic.status,
-                  self._reading_list_indicator(comic))
+        values = (
+            comic.path.name,
+            comic.series_name,
+            comic.issue_number,
+            comic.title,
+            comic.volume,
+            comic.year,
+            self._reading_list_indicator(comic),
+        )
         if role == self.COMIC_ROLE:
             return comic
         if role in (Qt.DisplayRole, Qt.EditRole):
