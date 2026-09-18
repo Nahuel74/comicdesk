@@ -15,10 +15,10 @@ from comicdesk.services.identification import (
 
 
 def issue(issue_id, series_id="20", series_name="Saga", volume="1", number="3",
-          name="", store_date=""):
+          name="", store_date="", cover_date="2020-03-04"):
     return ComicVineIssue(
         id=str(issue_id), series_id=str(series_id), series_name=series_name,
-        volume=volume, issue_number=number, cover_date="2020-03-04",
+        volume=volume, issue_number=number, cover_date=cover_date,
         web_url=f"https://comicvine.test/4000-{issue_id}/", name=name,
         store_date=store_date,
     )
@@ -170,6 +170,43 @@ def test_publication_year_disambiguates_same_series_and_issue_number():
     assert result.issue is excalibur_2004
     assert ("search_volume", "Excalibur") in client.calls
     assert ("list_issues", "42340", "1") in client.calls
+
+
+def test_cover_year_finds_issue_on_volume_started_prior_year():
+    excalibur_8 = issue(
+        "99105",
+        series_id="42340",
+        series_name="Excalibur",
+        volume="2004",
+        number="8",
+        store_date="2005-02-01",
+        cover_date="2005-02-01",
+    )
+    volume_2004 = SimpleNamespace(id="42340", name="Excalibur", start_year="2004")
+    noise_volume = SimpleNamespace(id="99999", name="Excalibur", start_year="2019")
+    path = Path("Excalibur 008 (2005) (Digital) (Shadowcat-Empire).cbz")
+    comic = Comic(path)
+
+    class VolumeClient(Client):
+        def list_issues(self, series_id, issue_number):
+            self.calls.append(("list_issues", series_id, issue_number))
+            if series_id == "42340":
+                return [excalibur_8]
+            return []
+
+        def get_issue(self, issue_id):
+            self.calls.append(("get_issue", issue_id))
+            if issue_id == "99105":
+                return excalibur_8
+            return issue(issue_id)
+
+    client = VolumeClient(volumes=[volume_2004, noise_volume])
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue is excalibur_8
+    assert ("list_issues", "42340", "8") in client.calls
+    assert not any(call == ("list_issues", "99999", "8") for call in client.calls)
 
 
 def test_series_volume_and_number_disambiguate_search_results():

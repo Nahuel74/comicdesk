@@ -107,6 +107,19 @@ class TestComicVineClient:
         assert issue.store_date == ""
 
     @patch("comicdesk.services.comicvine_api.httpx.Client")
+    def test_search_issue_uses_expanded_result_limit(self, mock_client_cls, client):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"status_code": 1, "results": []}
+        mock_response.raise_for_status = MagicMock()
+        mock_get = mock_client_cls.return_value.__enter__.return_value.get
+        mock_get.return_value = mock_response
+
+        client.search_issue("Batman #1")
+
+        params = mock_get.call_args.kwargs.get("params") or mock_get.call_args[0][1]
+        assert params["limit"] == 20
+
+    @patch("comicdesk.services.comicvine_api.httpx.Client")
     def test_invalid_json_is_reported_as_api_error(self, mock_client_cls, client):
         from comicdesk.services.comicvine_api import ComicVineError
 

@@ -203,3 +203,29 @@ def test_changing_comic_clears_changed_highlights(qapp):
     panel.set_comic(second)
     assert panel.inputs["series_name"].property(CHANGED_PROPERTY) is False
     panel.shutdown_workers()
+
+
+def test_stop_hydrate_worker_releases_previous_worker(qapp, monkeypatch):
+    panel = CbzMetadataPanel(Comic(Path("book.cbz")))
+    released = []
+    monkeypatch.setattr(panel, "_release_worker", lambda worker: released.append(worker))
+    sentinel = object()
+    panel._hydrate_worker = sentinel
+
+    panel._stop_hydrate_worker()
+
+    assert released == [sentinel]
+    assert panel._hydrate_worker is None
+    panel.shutdown_workers()
+
+
+def test_stale_hydrate_finished_releases_worker(qapp, monkeypatch):
+    panel = CbzMetadataPanel(Comic(Path("book.cbz")))
+    released = []
+    monkeypatch.setattr(panel, "_release_worker", lambda worker: released.append(worker))
+    worker = object()
+
+    panel._hydrate_finished(None, worker, panel._request_token, panel._path_key)
+
+    assert released == [worker]
+    panel.shutdown_workers()

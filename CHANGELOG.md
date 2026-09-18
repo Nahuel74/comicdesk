@@ -4,6 +4,18 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-09-18
+
+### Changed
+
+- Main window opens at 1200×720 by default (was Qt’s implicit smaller size)
+
+### Fixed
+
+- Metadata panel no longer crashes when switching comics or candidates while Comic Vine hydration is still running (`QThread destroyed while thread is still running`)
+- Comic Vine metadata search returns more issue and volume candidates (20 results instead of 10)
+- Year hints from filenames or ComicInfo now match issues whose cover year is one year after the parent volume’s Comic Vine start year (e.g. *Excalibur* #8 tagged `(2005)` on the 2004 series)
+
 ## [1.7.0] - 2026-09-18
 
 ### Fixed

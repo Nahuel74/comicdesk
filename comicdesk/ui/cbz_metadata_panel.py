@@ -37,6 +37,7 @@ from comicdesk.ui.theme import (
 MULTILINE_FIELDS = {"summary", "notes", "review"}
 ID_FIELDS = (("Series ID", "cv_series_id"), ("Issue ID", "cv_issue_id"))
 CHANGED_PROPERTY = "metadataChanged"
+WORKER_JOIN_TIMEOUT_MS = 5000
 FIELD_LABELS = {name: label for label, name in FIELD_TAGS}
 METADATA_GROUPS = (
     ("Identifiers", ("cv_series_id", "cv_issue_id")),
@@ -478,8 +479,11 @@ class CbzMetadataPanel(QWidget):
         worker.error.connect(lambda message, w=worker, t=token, p=path: self._search_error(message, w, t, p))
         self._set_status("Searching Comic Vine…"); self._set_action_state(); worker.start()
     def _search_finished(self, result, worker, token, path):
-        if worker is not self._search_worker or token != self._request_token or path != self._path_key: return
-        self._search_worker = None; worker.deleteLater()
+        if worker is not self._search_worker or token != self._request_token or path != self._path_key:
+            self._release_worker(worker)
+            return
+        self._search_worker = None
+        self._release_worker(worker)
         candidates = list(getattr(result, "issues", []) or []) or list(getattr(result, "volumes", []) or [])
         if not candidates and getattr(result, "issue", None) is not None: candidates = [result.issue]
         self._show_candidates(candidates); status = getattr(result, "status", "")
@@ -488,8 +492,13 @@ class CbzMetadataPanel(QWidget):
         else: self._set_status("Exact proposal selected; apply it explicitly"); self.candidates_list.setCurrentRow(0)
         self._set_action_state()
     def _search_error(self, message, worker, token, path):
-        if worker is not self._search_worker or token != self._request_token or path != self._path_key: return
-        self._search_worker = None; worker.deleteLater(); self._set_status(message); self._set_action_state()
+        if worker is not self._search_worker or token != self._request_token or path != self._path_key:
+            self._release_worker(worker)
+            return
+        self._search_worker = None
+        self._release_worker(worker)
+        self._set_status(message)
+        self._set_action_state()
     def _show_candidates(self, candidates):
         self.candidates_list.clear()
         for candidate in candidates:
@@ -522,8 +531,7 @@ class CbzMetadataPanel(QWidget):
 
     def _hydrate_candidate(self, candidate):
         """Fetch complete Comic Vine details for a selected candidate."""
-        if self._hydrate_worker is not None:
-            self._hydrate_worker.cancel()
+        self._stop_hydrate_worker()
         key = str(getattr(self.config, "api_key", "") or "").strip()
         if not key or not getattr(candidate, "id", None):
             return
@@ -543,18 +551,20 @@ class CbzMetadataPanel(QWidget):
 
     def _hydrate_finished(self, hydrated, worker, token, path):
         if worker is not self._hydrate_worker or token != self._request_token or path != self._path_key:
+            self._release_worker(worker)
             return
         self._hydrate_worker = None
-        worker.deleteLater()
+        self._release_worker(worker)
         self._proposal = hydrated
         self._set_status("Complete metadata loaded; apply it to the draft")
         self._set_action_state()
 
     def _hydrate_error(self, message, worker, token, path):
         if worker is not self._hydrate_worker or token != self._request_token or path != self._path_key:
+            self._release_worker(worker)
             return
         self._hydrate_worker = None
-        worker.deleteLater()
+        self._release_worker(worker)
         self._set_status(f"Hydration failed: {message}")
         self._set_action_state()
     def apply_proposal(self):
@@ -598,10 +608,12 @@ class CbzMetadataPanel(QWidget):
         return True
     save_metadata = save
     def _write_finished(self, saved, worker, token, path):
-        if worker is not self._write_worker: return
+        if worker is not self._write_worker:
+            self._release_worker(worker)
+            return
         session = self._write_session or self.session
         self._write_worker = None; self._write_session = None; self._write_completion = None
-        worker.deleteLater()
+        self._release_worker(worker)
         saved_comic = session.mark_saved() if session is not None else self.comic
         if session is self.session:
             self._populate_form()
@@ -611,8 +623,11 @@ class CbzMetadataPanel(QWidget):
             pending = self._pending_comic; self._pending_comic = None; self._has_pending_comic = False
             self._activate_comic(pending)
     def _write_error(self, message, worker, token, path):
-        if worker is not self._write_worker: return
-        self._write_worker = None; self._write_session = None; self._write_completion = None; worker.deleteLater()
+        if worker is not self._write_worker:
+            self._release_worker(worker)
+            return
+        self._write_worker = None; self._write_session = None; self._write_completion = None
+        self._release_worker(worker)
         self._pending_comic = None; self._has_pending_comic = False
         self._set_status(message); self._set_action_state()
     def _record_write_completion(self, worker, success, value):
@@ -629,15 +644,34 @@ class CbzMetadataPanel(QWidget):
         if comic is None or self.comic is not comic:
             return
         self._path_key = self._comic_path_key(comic)
+    def _release_worker(self, worker) -> None:
+        """Stop a metadata worker and destroy it only after the thread exits."""
+        if worker is None:
+            return
+        worker.cancel()
+        if worker.isRunning():
+            if not worker.wait(WORKER_JOIN_TIMEOUT_MS):
+                worker.finished.connect(worker.deleteLater)
+                return
+        worker.deleteLater()
+
+    def _stop_search_worker(self) -> None:
+        worker = self._search_worker
+        if worker is None:
+            return
+        self._search_worker = None
+        self._release_worker(worker)
+
+    def _stop_hydrate_worker(self) -> None:
+        worker = self._hydrate_worker
+        if worker is None:
+            return
+        self._hydrate_worker = None
+        self._release_worker(worker)
+
     def shutdown_workers(self):
-        search = self._search_worker
-        if search is not None:
-            search.cancel(); search.isRunning() and search.wait()
-            search.deleteLater(); self._search_worker = None
-        hydrate = self._hydrate_worker
-        if hydrate is not None:
-            hydrate.cancel(); hydrate.isRunning() and hydrate.wait()
-            hydrate.deleteLater(); self._hydrate_worker = None
+        self._stop_search_worker()
+        self._stop_hydrate_worker()
         self._wait_for_write()
         self._request_token += 1
         self._set_action_state()

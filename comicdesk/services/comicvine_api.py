@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 API_BASE = "https://comicvine.gamespot.com/api"
 CACHE_DIR = CONFIG_DIR / "cache"
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+SEARCH_RESULT_LIMIT = 20
 
 
 class ComicVineError(Exception):
@@ -284,7 +285,7 @@ class ComicVineClient:
         data = self._request("search", {
             "query": query,
             "resources": "issue",
-            "limit": 10
+            "limit": SEARCH_RESULT_LIMIT
         })
         results = data.get("results") or []
         if not isinstance(results, list):
@@ -296,7 +297,7 @@ class ComicVineClient:
         data = self._request("search", {
             "query": query,
             "resources": "volume",
-            "limit": 10,
+            "limit": SEARCH_RESULT_LIMIT,
         })
         results = data.get("results") or []
         if not isinstance(results, list):

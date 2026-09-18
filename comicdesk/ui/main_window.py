@@ -24,6 +24,9 @@ from comicdesk.ui.theme import (
 )
 from comicdesk.ui.widgets.collapsible_sidebar import CollapsibleSidebar
 
+DEFAULT_WINDOW_WIDTH = 1200
+DEFAULT_WINDOW_HEIGHT = 720
+
 
 class MainWindow(QMainWindow):
     """Main application window."""
@@ -57,6 +60,7 @@ class MainWindow(QMainWindow):
     def _setup_ui(self):
         self.setWindowTitle("ComicDesk[*]")
         self.setMinimumSize(880, 600)
+        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
 
         self.app_shell = AppShell(
             folder_sidebar=self.folder_sidebar,

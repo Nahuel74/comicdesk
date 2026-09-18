@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from comicdesk.models import Comic, ComicVineIssue, ComicVineVolume
+from comicdesk.services.comicvine_api import SEARCH_RESULT_LIMIT
 from comicdesk.utils.filename_parser import parse_comic_filename
 
 STATUS_EXACT = "exact"
@@ -117,7 +118,7 @@ def identify_comic(comic: Comic, client) -> IdentificationResult:
             by_year = [
                 volume
                 for volume in volumes
-                if _volume_start_year(volume) == hint_year
+                if _volume_matches_year_hint(_volume_start_year(volume), hint_year)
             ]
             if by_year:
                 volumes = by_year
@@ -213,7 +214,9 @@ def _from_issue_search(
     if issue_number:
         matches = [issue for issue in matches if _issue_matches(issue.issue_number, issue_number)]
     if len(matches) > 1 and hint_year:
-        matches = _narrow_issues_by_year(matches, hint_year) or matches
+        narrowed = _narrow_issues_by_year(matches, hint_year)
+        if narrowed:
+            matches = narrowed
     if len(matches) == 1:
         issue = matches[0]
         return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
@@ -234,18 +237,18 @@ def _lookup_by_volume_and_issue(
         volumes = []
     matched_volumes = [volume for volume in volumes if _series_matches(volume.name, series_name)]
     if not matched_volumes:
-        matched_volumes = list(volumes[:5])
+        matched_volumes = list(volumes[:SEARCH_RESULT_LIMIT])
     if hint_year and matched_volumes:
         by_year = [
             volume
             for volume in matched_volumes
-            if _volume_start_year(volume) == hint_year
+            if _volume_matches_year_hint(_volume_start_year(volume), hint_year)
         ]
         if by_year:
             matched_volumes = by_year
     issues: list[ComicVineIssue] = []
     seen_ids: set[str] = set()
-    for volume in matched_volumes[:8]:
+    for volume in matched_volumes[:SEARCH_RESULT_LIMIT]:
         try:
             listed = client.list_issues(volume.id, issue_number)
         except Exception:
@@ -317,15 +320,46 @@ def _volume_start_year(volume: ComicVineVolume) -> str:
 
 def _issue_publication_year(issue: ComicVineIssue) -> str:
     for value in (
-        issue.volume_start_year,
-        issue.volume,
         (issue.store_date or "").split("-")[0],
         (issue.cover_date or "").split("-")[0],
+        issue.volume_start_year,
     ):
         text = (value or "").strip()
         if re.fullmatch(r"(19|20)\d{2}", text):
             return text
+    volume = (issue.volume or "").strip()
+    if re.fullmatch(r"(19|20)\d{2}", volume):
+        return volume
     return ""
+
+
+def _volume_matches_year_hint(start_year: str, hint_year: str) -> bool:
+    """Match filename/ComicInfo year to a volume's start_year.
+
+    Cover/store years in filenames are often one calendar year after the
+    parent volume's Comic Vine start_year (e.g. Excalibur 2004 series, #8 in 2005).
+    """
+    start = (start_year or "").strip()
+    hint = (hint_year or "").strip()
+    if not hint:
+        return True
+    if not start:
+        return False
+    if start == hint:
+        return True
+    try:
+        return int(hint) - int(start) == 1
+    except ValueError:
+        return False
+
+
+def _issue_matches_year_hint(issue: ComicVineIssue, hint_year: str) -> bool:
+    if not hint_year:
+        return True
+    publication = _issue_publication_year(issue)
+    if publication:
+        return publication == hint_year
+    return _volume_matches_year_hint(issue.volume_start_year, hint_year)
 
 
 def _narrow_issues_by_year(
@@ -333,10 +367,9 @@ def _narrow_issues_by_year(
 ) -> list[ComicVineIssue]:
     if not hint_year:
         return list(issues)
-    matched = [
-        issue for issue in issues if _issue_publication_year(issue) == hint_year
+    return [
+        issue for issue in issues if _issue_matches_year_hint(issue, hint_year)
     ]
-    return matched
 
 
 def _norm_issue(value: str) -> str:
