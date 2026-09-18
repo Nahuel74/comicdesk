@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QToolButton, QTreeView, QVBoxLayout, QWidget,
 )
 
-from comicdesk.services.cbz_reader import read_cbz_metadata
+from comicdesk.services.comic_archive import iter_comic_files, read_comic_metadata
 from comicdesk.ui.theme import (
     button_stylesheet,
     colors_for,
@@ -44,13 +44,11 @@ class ScanWorker(QThread):
 
     def run(self):
         comics = []
-        pattern = "**/*.cbz" if self.recursive else "*.cbz"
-        for cbz_file in sorted(self.path.glob(pattern)):
+        for comic_file in iter_comic_files(self.path, self.recursive):
             if self._cancelled:
                 break
-            if cbz_file.is_file():
-                self.progress.emit(str(cbz_file.name))
-                comics.append(read_cbz_metadata(cbz_file))
+            self.progress.emit(str(comic_file.name))
+            comics.append(read_comic_metadata(comic_file))
         self.finished.emit(comics)
 
     def cancel(self):
@@ -136,8 +134,8 @@ class FolderPanel(QWidget):
         self.footer = QWidget()
         footer_layout = QHBoxLayout(self.footer)
         footer_layout.setContentsMargins(8, 8, 8, 8)
-        self.scan_btn = QPushButton("Scan for CBZ")
-        self.scan_btn.setToolTip("Scan current folder for CBZ files")
+        self.scan_btn = QPushButton("Scan for comics")
+        self.scan_btn.setToolTip("Scan current folder for comic archives (.cbz, .cbr)")
         self.scan_btn.setProperty("primary", True)
         self.scan_btn.clicked.connect(self._on_scan)
         footer_layout.addWidget(self.scan_btn)
@@ -185,7 +183,7 @@ class FolderPanel(QWidget):
             self.title_label.hide()
             self.scan_btn.setFixedWidth(28)
             self.scan_btn.setText("✓")
-            self.scan_btn.setToolTip("Scan current folder for CBZ files")
+            self.scan_btn.setToolTip("Scan current folder for comic archives (.cbz, .cbr)")
             self.collapse_btn.setText("›")
             self.collapse_btn.setToolTip("Expand folders sidebar")
         else:
@@ -194,7 +192,7 @@ class FolderPanel(QWidget):
             self.title_label.show()
             self.scan_btn.setMinimumWidth(0)
             self.scan_btn.setMaximumWidth(16777215)
-            self.scan_btn.setText("Scan for CBZ")
+            self.scan_btn.setText("Scan for comics")
             self.collapse_btn.setText("‹")
             self.collapse_btn.setToolTip("Collapse folders sidebar")
             self._update_path_label()
@@ -252,7 +250,7 @@ class FolderPanel(QWidget):
             return
         menu = QMenu(self)
         menu.setStyleSheet(menu_stylesheet(self._theme))
-        menu.addAction("📂 Scan for CBZ", lambda: self._scan_folder(path))
+        menu.addAction("📂 Scan for comics", lambda: self._scan_folder(path))
         menu.addAction("📁 Open in File Manager", lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))))
         menu.exec(self.tree.viewport().mapToGlobal(position))
 

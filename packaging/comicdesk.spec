@@ -19,6 +19,7 @@ a = Analysis(
         'PySide6.QtNetwork',
         'httpx._transports.default',
         'httpx._transports.registry',
+        'rarfile',
     ],
     hookspath=[],
     hooksconfig={},

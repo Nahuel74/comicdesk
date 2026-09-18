@@ -94,7 +94,7 @@ class AppShell(QWidget):
         layout.setSpacing(0)
         chrome = PanelChrome(
             "Library",
-            "Select a folder, scan CBZ files, and review Comic Vine enrichment status.",
+            "Select a folder, scan comic archives, and review Comic Vine enrichment status.",
         )
         layout.addWidget(chrome)
 

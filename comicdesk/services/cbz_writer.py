@@ -21,7 +21,7 @@ def write_cbz_metadata(comic: Comic) -> Path:
     """Persist comic metadata into ComicInfo.xml without corrupting the archive."""
     cbz_path = Path(comic.path)
     if not cbz_path.is_file():
-        raise CbzWriteError(f"CBZ file not found: {cbz_path}")
+        raise CbzWriteError(f"Comic archive not found: {cbz_path}")
 
     source_mode = None
     tmp_path = None
@@ -41,14 +41,32 @@ def write_cbz_metadata(comic: Comic) -> Path:
     except Exception as exc:
         if tmp_path is not None and tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
-        raise CbzWriteError(f"Unable to write CBZ metadata: {exc}") from exc
+        raise CbzWriteError(f"Unable to write comic metadata: {exc}") from exc
     return cbz_path
+
+
+def comicinfo_xml_bytes(comic: Comic, root: ET.Element | None = None) -> bytes:
+    """Serialize ComicInfo.xml bytes, merging *comic* into an optional existing root."""
+    if root is None:
+        root = ET.Element("ComicInfo")
+    root = comic_to_element(comic, root)
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def parse_comicinfo_root(raw: bytes, source_label: str) -> ET.Element:
+    """Parse ComicInfo bytes or raise CbzWriteError."""
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as exc:
+        raise CbzWriteError(f"ComicInfo.xml is corrupt: {source_label}") from exc
+    if local_name(root.tag).casefold() != "comicinfo":
+        raise CbzWriteError(f"ComicInfo.xml has an invalid root: {source_label}")
+    return root
 
 
 def _build_comicinfo_xml(cbz_path: Path, comic: Comic) -> bytes:
     root = _load_existing_root(cbz_path)
-    root = comic_to_element(comic, root)
-    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    return comicinfo_xml_bytes(comic, root)
 
 
 def _load_existing_root(cbz_path: Path) -> ET.Element:
@@ -59,15 +77,9 @@ def _load_existing_root(cbz_path: Path) -> ET.Element:
                 return ET.Element("ComicInfo")
             raw = archive.read(xml_name)
     except (zipfile.BadZipFile, OSError, KeyError) as exc:
-        raise CbzWriteError(f"Not a valid CBZ archive: {cbz_path}") from exc
+        raise CbzWriteError(f"Not a valid comic archive (ZIP): {cbz_path}") from exc
 
-    try:
-        root = ET.fromstring(raw)
-    except ET.ParseError as exc:
-        raise CbzWriteError(f"ComicInfo.xml is corrupt: {cbz_path}") from exc
-    if local_name(root.tag).casefold() != "comicinfo":
-        raise CbzWriteError(f"ComicInfo.xml has an invalid root: {cbz_path}")
-    return root
+    return parse_comicinfo_root(raw, str(cbz_path))
 
 
 def _rewrite_archive(source: Path, dest: Path, xml_bytes: bytes) -> None:

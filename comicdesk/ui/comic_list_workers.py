@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from comicdesk.models import Comic
-from comicdesk.services.cbz_reader import read_cbz_metadata
+from comicdesk.services.comic_archive import iter_comic_files, read_comic_metadata
 from comicdesk.utils.rename_template import RenamePlanRow, RenameRowStatus
 
 
@@ -94,16 +94,14 @@ class ScanWorker(QThread):
 
     def run(self):
         comics = []
-        pattern = "**/*.cbz" if self.recursive else "*.cbz"
-        for cbz_file in sorted(self.path.glob(pattern)):
+        for comic_file in iter_comic_files(self.path, self.recursive):
             if self._cancelled:
                 break
-            if cbz_file.is_file():
-                self.progress.emit(str(cbz_file.name))
-                try:
-                    comics.append(read_cbz_metadata(cbz_file))
-                except Exception as exc:
-                    self.error.emit(f"Unable to read {cbz_file.name}: {exc}")
+            self.progress.emit(str(comic_file.name))
+            try:
+                comics.append(read_comic_metadata(comic_file))
+            except Exception as exc:
+                self.error.emit(f"Unable to read {comic_file.name}: {exc}")
         self.finished.emit(comics)
 
     def cancel(self):

@@ -89,7 +89,7 @@ class ComicList(QWidget):
         self.clear_selection_btn.clicked.connect(self._clear_selection)
         self.rename_btn = QPushButton("Rename files…")
         self.rename_btn.setToolTip(
-            "Rename selected CBZ files using a metadata template (or all comics if none selected)"
+            "Rename selected comic files using a metadata template (or all comics if none selected)"
         )
         self.rename_btn.setEnabled(False)
         self.rename_btn.clicked.connect(self._on_rename_files)
@@ -267,10 +267,14 @@ class ComicList(QWidget):
         if comic is not None:
             self.comic_edit_requested.emit(comic)
 
-    def refresh_comic(self, comic):
+    def refresh_comic(self, comic, previous_path: str = ""):
         """Notify the table that an edited comic changed in place."""
+        if previous_path and str(comic.path) != previous_path:
+            self._selection.remap_paths({previous_path: str(comic.path)})
         for row, current in enumerate(self.model.comics):
-            if current is comic or current.path == comic.path:
+            if current is comic or current.path == comic.path or (
+                previous_path and str(current.path) == previous_path
+            ):
                 last_column = self.model.columnCount() - 1
                 self.model.dataChanged.emit(
                     self.model.index(row, 0),
@@ -313,7 +317,7 @@ class ComicList(QWidget):
             QMessageBox.information(
                 self,
                 "Rename files",
-                "No local CBZ files to rename in the current selection or folder.",
+                "No local comic files to rename in the current selection or folder.",
             )
             return
         dialog = RenameFilesDialog(

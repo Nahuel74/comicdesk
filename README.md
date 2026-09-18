@@ -2,21 +2,22 @@
 
 **Your comic library workstation.**
 
-ComicDesk is a PySide6 desktop app for local CBZ libraries: browse and enrich metadata, edit ComicInfo, manage ComicRack CBL reading lists, and download missing issues via GetComics.
+ComicDesk is a PySide6 desktop app for local comic libraries (`.cbz`, `.cbr`): browse and enrich metadata, edit ComicInfo, manage ComicRack CBL reading lists, and download missing issues via GetComics.
 
 ## Features
 
-- **Library** — folder browser, CBZ scan, search, metadata-status filter, bulk rename, add comics to a reading list
+- **Library** — folder browser, comic archive scan, search, metadata-status filter, bulk rename, add comics to a reading list
 - **Metadata** — transactional ComicInfo editing, online metadata search, per-folder instance list
 - **Lists** — import/export CBL, sort and reorder, live XML preview, manual **Add issue** (with metadata lookup), entries with or without a local file
 - **Acquire** — GetComics search, wishlist, sequential download queue
 
-Themes (dark/light), Comic Vine API client with cache, and atomic config/CBZ/wishlist writes.
+Themes (dark/light), Comic Vine API client with cache, and atomic config/archive/wishlist writes.
 
 ## Requirements
 
 - Python 3.14+
-- PySide6, httpx, beautifulsoup4, cloudscraper
+- PySide6, httpx, beautifulsoup4, cloudscraper, rarfile
+- Optional for `.cbr`: `unrar` or `unar` on your `PATH` (or set `UNRAR_TOOL` to the unrar binary)
 
 ## Installation
 
@@ -47,7 +48,7 @@ Open **Settings** (`Ctrl+,`):
 
 **Library:** pick a folder → scan → filter/search → edit metadata per comic or use **Rename files…**.
 
-**Metadata:** open a comic from Library (double-click or context menu) → search → apply proposal → save to CBZ.
+**Metadata:** open a comic from Library (double-click or context menu) → search → apply proposal → save (`.cbr` archives are converted to `.cbz` on save).
 
 **Lists:** build a list from Library (**Add to list**) and/or **Add issue** on the Lists tab → export CBL (`Ctrl+E`).  
 **Import CBL** (`Ctrl+I`): review linked vs missing counts → confirm replacing the list → optionally add missing issues to the wishlist. The list keeps all CBL entries (local files and not-in-library rows).
@@ -75,7 +76,7 @@ Open **Settings** (`Ctrl+,`):
 | `cache_enabled` | API response disk cache |
 | `last_cbl_directory` | Last path used for CBL dialogs |
 | `getcomics_download_folder` | Download destination |
-| `auto_enrich_after_download` | Enrich `.cbz` after GetComics download |
+| `auto_enrich_after_download` | Enrich downloaded comic archives after GetComics (`.cbr` becomes `.cbz` when enriched) |
 | `theme` | `dark` or `light` |
 
 Also: `cache/api_cache.json`, `wishlist.json`.

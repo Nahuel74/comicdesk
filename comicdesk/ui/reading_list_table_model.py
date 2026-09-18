@@ -141,7 +141,7 @@ class ReadingListTableModel(QAbstractTableModel):
             if column == self.COL_FILE and comic.has_local_file:
                 return str(comic.path)
             if column == self.COL_FILE and virtual:
-                return "No local CBZ file linked"
+                return "No local comic file linked"
             if column == self.COL_RELEASE:
                 if comic.release_date is not None:
                     return "From ComicInfo release date"

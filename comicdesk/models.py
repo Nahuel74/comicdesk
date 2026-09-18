@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 @dataclass
 class Comic:
-    """Comic metadata extracted from CBZ file."""
+    """Comic metadata extracted from a local comic archive."""
     path: Path
     title: str = ""
     series_name: str = ""
@@ -65,7 +65,7 @@ class Comic:
 
     @property
     def has_local_file(self) -> bool:
-        """True when the comic is backed by a scanned CBZ path."""
+        """True when the comic is backed by a scanned local archive path."""
         if self.path is None:
             return False
         text = str(self.path)

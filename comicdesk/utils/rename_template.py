@@ -214,7 +214,18 @@ def plan_renames(
                     old_path=comic.path,
                     proposed_path=None,
                     status=RenameRowStatus.EXCLUDED,
-                    message="No local CBZ file",
+                    message="No local comic file",
+                )
+            )
+            continue
+        if comic.path.suffix.lower() == ".cbr":
+            rows.append(
+                RenamePlanRow(
+                    comic=comic,
+                    old_path=comic.path,
+                    proposed_path=None,
+                    status=RenameRowStatus.EXCLUDED,
+                    message="Save metadata first to convert the archive, then rename",
                 )
             )
             continue

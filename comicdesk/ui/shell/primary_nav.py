@@ -12,7 +12,7 @@ NAV_LISTS = "lists"
 NAV_ACQUIRE = "acquire"
 
 _NAV_ITEMS = (
-    (NAV_LIBRARY, "Library", "Browse CBZ folders and enrichment status"),
+    (NAV_LIBRARY, "Library", "Browse comic folders and enrichment status"),
     (NAV_METADATA, "Metadata", "Edit ComicInfo and Comic Vine data"),
     (NAV_LISTS, "Lists", "CBL reading lists and reconciliation"),
     (NAV_ACQUIRE, "Acquire", "GetComics search, wishlist, and downloads"),

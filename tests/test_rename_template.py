@@ -128,6 +128,18 @@ def test_plan_excludes_non_local():
     assert rows[0].status == RenameRowStatus.EXCLUDED
 
 
+def test_plan_excludes_cbr_until_converted(tmp_path):
+    cbr = tmp_path / "series.cbr"
+    cbr.write_bytes(b"x")
+    rows = plan_renames(
+        [Comic(path=cbr, series_name="Series", issue_number="1")],
+        "{Series} - {Number}",
+    )
+    assert len(rows) == 1
+    assert rows[0].status == RenameRowStatus.EXCLUDED
+    assert "convert the archive" in rows[0].message
+
+
 def test_plan_detects_duplicate_targets(tmp_path):
     a = tmp_path / "a.cbz"
     b = tmp_path / "b.cbz"

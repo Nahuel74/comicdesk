@@ -4,6 +4,27 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-18
+
+### Added
+
+- Library scan and metadata read support for `.cbr` (RAR) comics alongside `.cbz`
+- Saving metadata or GetComics auto-enrich on a `.cbr` converts it to a `.cbz` archive safely (temp file, validation, then remove the original)
+
+### Changed
+
+- **Rename files…** excludes `.cbr` until metadata is saved (conversion to `.cbz`)
+- Library and metadata UI copy refers to comic archives instead of CBZ-only wording
+
+### Fixed
+
+- Comic Vine metadata search no longer fails when the API returns brotli or gzip-compressed JSON
+- CBR→archive conversion skips empty RAR directory entries (e.g. `Zone/`) that broke saves
+
+### Notes
+
+- Reading and converting `.cbr` requires the `rarfile` package and a system tool such as `unrar` or `unar` on `PATH` (or `UNRAR_TOOL`)
+
 ## [1.7.1] - 2026-09-18
 
 ### Changed

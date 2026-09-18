@@ -8,7 +8,8 @@ import logging
 
 from PySide6.QtCore import QThread, Signal
 
-from comicdesk.services.cbz_writer import write_cbz_metadata
+from comicdesk.services.comic_archive import write_comic_metadata
+from comicdesk.services.cbz_writer import CbzWriteError
 from comicdesk.services.comicvine_api import (
     ComicVineClient,
     ComicVineError,
@@ -90,13 +91,17 @@ class MetadataWriteWorker(QThread):
         if self._cancelled:
             return
         try:
-            saved_path = write_cbz_metadata(self.comic)
+            saved_path = write_comic_metadata(self.comic)
             if not self._cancelled:
                 self.finished.emit(saved_path)
+        except CbzWriteError as exc:
+            logger.exception("metadata_write_failed error_type=%s", type(exc).__name__)
+            if not self._cancelled:
+                self.error.emit(f"Unable to save comic metadata: {exc}")
         except Exception as exc:  # includes empty/imported CBL paths
             logger.exception("metadata_write_failed error_type=%s", type(exc).__name__)
             if not self._cancelled:
-                self.error.emit(f"Unable to save CBZ metadata: {exc}")
+                self.error.emit(f"Unable to save comic metadata: {exc}")
 
     def cancel(self):
         self._cancelled = True

@@ -1,5 +1,6 @@
 """Comic Vine API client with caching and rate limiting."""
 
+import gzip
 import time
 import json
 import logging
@@ -108,6 +109,29 @@ def _names(values) -> list[str]:
             if isinstance(item, dict) and item.get("name")]
 
 
+def _response_json(response: httpx.Response) -> dict:
+    """Parse a Comic Vine JSON body, including gzip when httpx did not decode it."""
+    try:
+        data = response.json()
+    except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        body = response.content
+        if len(body) >= 2 and body[:2] == b"\x1f\x8b":
+            try:
+                data = json.loads(gzip.decompress(body))
+            except (OSError, ValueError, json.JSONDecodeError) as gzip_exc:
+                raise ComicVineError("Comic Vine returned invalid JSON") from gzip_exc
+        else:
+            encoding = (response.headers.get("content-encoding") or "").casefold()
+            if "br" in encoding:
+                raise ComicVineError(
+                    "Comic Vine returned brotli-compressed data that could not be decoded"
+                ) from exc
+            raise ComicVineError("Comic Vine returned invalid JSON") from exc
+    if not isinstance(data, dict):
+        raise ComicVineError("Comic Vine returned an invalid response")
+    return data
+
+
 ISSUE_FIELDS = ("id,volume,issue_number,name,cover_date,store_date,site_detail_url,description,"
                 "publisher,genres,character_credits,concept_credits,location_credits,"
                 "person_credits,story_arc_credits,team_credits,age_rating,image")
@@ -200,7 +224,8 @@ class ComicVineClient:
                         "User-Agent": USER_AGENT,
                         "Accept": "application/json, text/javascript, */*; q=0.01",
                         "Accept-Language": "en-US,en;q=0.9",
-                        "Accept-Encoding": "gzip, deflate, br",
+                        # Do not set Accept-Encoding here: advertising brotli (br) without
+                        # a decoder leaves compressed bytes that break response.json().
                         "Connection": "keep-alive",
                         "X-Requested-With": "XMLHttpRequest",
                     }
@@ -212,10 +237,7 @@ class ComicVineClient:
                     raise ComicVineError("Blocked by Cloudflare - try again later")
                 
                 response.raise_for_status()
-                try:
-                    data = response.json()
-                except (ValueError, json.JSONDecodeError) as exc:
-                    raise ComicVineError("Comic Vine returned invalid JSON") from exc
+                data = _response_json(response)
                 
         except httpx.HTTPStatusError as e:
             logger.warning("comicvine_request_http_error endpoint=%s status_code=%s",

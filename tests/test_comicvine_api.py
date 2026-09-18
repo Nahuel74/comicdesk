@@ -107,6 +107,19 @@ class TestComicVineClient:
         assert issue.store_date == ""
 
     @patch("comicdesk.services.comicvine_api.httpx.Client")
+    def test_request_omits_custom_accept_encoding(self, mock_client_cls, client):
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"status_code": 1, "results": []}
+        mock_response.raise_for_status = MagicMock()
+        mock_get = mock_client_cls.return_value.__enter__.return_value.get
+        mock_get.return_value = mock_response
+
+        client.search_issue("Batman")
+
+        headers = mock_get.call_args.kwargs.get("headers") or {}
+        assert "Accept-Encoding" not in headers
+
+    @patch("comicdesk.services.comicvine_api.httpx.Client")
     def test_search_issue_uses_expanded_result_limit(self, mock_client_cls, client):
         mock_response = MagicMock()
         mock_response.json.return_value = {"status_code": 1, "results": []}
@@ -118,6 +131,22 @@ class TestComicVineClient:
 
         params = mock_get.call_args.kwargs.get("params") or mock_get.call_args[0][1]
         assert params["limit"] == 20
+
+    @patch("comicdesk.services.comicvine_api.httpx.Client")
+    def test_gzip_body_is_decoded_when_json_parse_fails(self, mock_client_cls, client):
+        payload = {"status_code": 1, "results": []}
+        compressed = __import__("gzip").compress(
+            __import__("json").dumps(payload).encode("utf-8")
+        )
+        mock_response = MagicMock()
+        mock_response.json.side_effect = UnicodeDecodeError("utf-8", b"\x8b", 0, 1, "invalid")
+        mock_response.content = compressed
+        mock_response.headers = {}
+        mock_response.raise_for_status = MagicMock()
+        mock_client_cls.return_value.__enter__.return_value.get.return_value = mock_response
+
+        data = client._request("search", {"query": "test", "resources": "issue"})
+        assert data["status_code"] == 1
 
     @patch("comicdesk.services.comicvine_api.httpx.Client")
     def test_invalid_json_is_reported_as_api_error(self, mock_client_cls, client):

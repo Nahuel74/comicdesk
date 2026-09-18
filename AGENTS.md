@@ -2,7 +2,7 @@
 
 ## Project
 
-ComicDesk is a PySide6 desktop workstation for local CBZ libraries: metadata (ComicInfo.xml), Comic Vine enrichment, ComicRack CBL reading lists, GetComics acquisition, wishlist, and a sequential download queue.
+ComicDesk is a PySide6 desktop workstation for local comic libraries (`.cbz`, `.cbr`): metadata (ComicInfo.xml), Comic Vine enrichment, ComicRack CBL reading lists, GetComics acquisition, wishlist, and a sequential download queue.
 
 ## Run
 
@@ -18,7 +18,7 @@ No linter, formatter, or type checker is configured.
 
 ## Stack
 
-- Python 3.14, PySide6, httpx, beautifulsoup4, cloudscraper
+- Python 3.14, PySide6, httpx, beautifulsoup4, cloudscraper, rarfile (CBR read/convert; needs system `unrar`/`unar` or `UNRAR_TOOL`)
 - `h2` in `requirements.txt` is unused at runtime (`http2=False` in `comicvine_api.py`)
 
 ## Packaging
@@ -69,7 +69,9 @@ Shell: `ui/shell/app_shell.py`, `primary_nav.py`. Background workers in `*_worke
 
 | Module | Role |
 |--------|------|
-| `cbz_reader.py` / `cbz_writer.py` | ComicInfo in CBZ |
+| `comic_archive.py` | Unified scan/read/write for `.cbz` and `.cbr` (`.cbr` saves convert to `.cbz`) |
+| `cbz_reader.py` / `cbz_writer.py` | ComicInfo in ZIP archives (`.cbz`) |
+| `cbr_reader.py` / `cbr_writer.py` / `cbr_backend.py` | `.cbr` read and conversion to `.cbz` (`cbr_backend` injectable in tests) |
 | `cbl_reader.py` / `cbl_writer.py` | CBL parse/write, `reconcile_cbl`, `ordered_comics_for_import` |
 | `comicinfo.py` | `FIELD_TAGS` — ComicInfo field mapping |
 | `comicvine_api.py` | Comic Vine client, cache, rate limit |
@@ -99,10 +101,11 @@ Shell: `ui/shell/app_shell.py`, `primary_nav.py`. Background workers in `*_worke
 - `Comic.volume` is publication/start year, not the CV volume database ID.
 - CBL export namespace `https://comicdesk.dev/xml/metadata`; import also accepts legacy `cbl-maker.dev`.
 - XML size/depth limits on ComicInfo and CBL (see tests).
-- **Reading lists** may include comics without a local CBZ (`has_local_file` false); CBL import uses `ordered_comics_for_import` to preserve full CBL order. Wishlist updates on import only after explicit user confirmation.
+- **Reading lists** may include comics without a local file (`has_local_file` false); CBL import uses `ordered_comics_for_import` to preserve full CBL order. Wishlist updates on import only after explicit user confirmation.
 - **Library table** has no status column; **Metadata** instance list shows **Metadata status**. Toolbar filter on Library still filters by enrichment state.
 - GetComics: `cloudscraper`; sequential download queue; `needs_attention` for manual provider pick.
 - Wishlist reconciles on library scan and download completion — don't duplicate in UI.
+- **CBR**: scan/read without RAR tools may use filename metadata only; save/enrich needs `unrar`/`unar`. Rename excludes `.cbr` until converted via Metadata save.
 
 ## Testing
 

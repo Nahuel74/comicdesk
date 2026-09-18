@@ -169,7 +169,7 @@ class GetComicsPanel(QWidget):
         self.dest_browse_button.clicked.connect(self._browse_dest_folder)
         dest_row.addWidget(self.dest_input, 1)
         dest_row.addWidget(self.dest_browse_button)
-        self.enrich_checkbox = QCheckBox("Auto-enrich CBZ after download")
+        self.enrich_checkbox = QCheckBox("Auto-enrich comic archives after download")
         self.enrich_checkbox.setChecked(self._auto_enrich_enabled())
         dest_row.addWidget(self.enrich_checkbox)
         outer.addLayout(dest_row)

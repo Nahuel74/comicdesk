@@ -1,4 +1,4 @@
-"""Themed editor for metadata belonging to one selected CBZ."""
+"""Themed editor for metadata belonging to one selected comic archive."""
 from __future__ import annotations
 from pathlib import Path
 import logging
@@ -104,7 +104,7 @@ class ComicInstanceList(QListWidget):
 
 
 class CbzMetadataPanel(QWidget):
-    metadata_saved = Signal(object)
+    metadata_saved = Signal(object, object)
     status_message = Signal(str)
     dirty_changed = Signal(bool)
     comic_focus_requested = Signal(object)
@@ -133,7 +133,7 @@ class CbzMetadataPanel(QWidget):
         self.title_label = QLabel("Selected comic")
         self.title_label.hide()
 
-        working_set = QGroupBox("Working set — select a CBZ from the scanned folder")
+        working_set = QGroupBox("Working set — select a comic from the scanned folder")
         working_layout = QVBoxLayout(working_set)
         filter_row = QHBoxLayout()
         self.instance_filter = QLineEdit()
@@ -223,7 +223,7 @@ class CbzMetadataPanel(QWidget):
         self.apply_btn = self.apply_button
         self.discard_button = self._button("Discard draft", self.discard)
         self.discard_btn = self.discard_button
-        self.save_button = self._button("3. Save to CBZ", self.save)
+        self.save_button = self._button("3. Save to archive", self.save)
         self.save_btn = self.save_button
         self.save_button.setProperty("primary", True)
         for button in (
@@ -590,7 +590,7 @@ class CbzMetadataPanel(QWidget):
         if not self.session or not self.session.is_dirty or self._write_worker is not None: return False
         raw_path = self.session.draft.path
         if not raw_path or str(raw_path) == ".":
-            self._set_status("Cannot save metadata: no CBZ path is available"); return False
+            self._set_status("Cannot save metadata: no local comic file path is available"); return False
         self._request_token += 1; token, path_key = self._request_token, self._path_key
         self._write_session = self.session; self._write_completion = None
         self._write_worker = MetadataWriteWorker(self.session.snapshot(), token=token, path=Path(raw_path))
@@ -614,11 +614,16 @@ class CbzMetadataPanel(QWidget):
         session = self._write_session or self.session
         self._write_worker = None; self._write_session = None; self._write_completion = None
         self._release_worker(worker)
+        saved_path = Path(saved)
+        if session is not None:
+            session.draft.path = saved_path
         saved_comic = session.mark_saved() if session is not None else self.comic
+        self._path_key = self._comic_path_key(saved_comic)
         if session is self.session:
             self._populate_form()
             self._clear_changed_highlights()
-            self._set_status(f"Metadata saved to {saved}"); self._emit_dirty(); self._set_action_state(); self.metadata_saved.emit(saved_comic)
+            self._set_status(f"Metadata saved to {saved}"); self._emit_dirty(); self._set_action_state()
+            self.metadata_saved.emit(saved_comic, path)
         if self._has_pending_comic:
             pending = self._pending_comic; self._pending_comic = None; self._has_pending_comic = False
             self._activate_comic(pending)
