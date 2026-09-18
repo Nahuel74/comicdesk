@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QSplitter,
 )
 from comicdesk.ui.metadata_instance_model import MetadataInstanceModel
-from comicdesk.models import ComicVineVolume
+from comicdesk.models import Comic, ComicVineVolume
 from comicdesk.services.comicinfo import FIELD_TAGS, join_web_links
 from comicdesk.services.identification import STATUS_CANDIDATES, STATUS_EMPTY
 from comicdesk.services.metadata_session import MetadataSession
@@ -623,6 +623,12 @@ class CbzMetadataPanel(QWidget):
     def _comic_path_key(comic):
         raw_path = getattr(comic, "path", None) if comic is not None else None
         return str(Path(raw_path)) if raw_path else ""
+
+    def notify_comic_renamed(self, comic: Comic) -> None:
+        """Keep the active metadata session aligned after a library file rename."""
+        if comic is None or self.comic is not comic:
+            return
+        self._path_key = self._comic_path_key(comic)
     def shutdown_workers(self):
         search = self._search_worker
         if search is not None:

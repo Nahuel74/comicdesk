@@ -44,6 +44,8 @@ class Config:
     getcomics_download_folder: str = ""
     auto_enrich_after_download: bool = True
     theme: str = "dark"
+    last_rename_template: str = ""
+    rename_issue_pad_width: int = 0
 
     def save(self) -> None:
         """Save config to file."""

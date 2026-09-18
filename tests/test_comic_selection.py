@@ -73,3 +73,12 @@ def test_selection_state_restores_compatible_comics():
     refreshed = [Comic(path=Path("b.cbz")), Comic(path=Path("missing.cbz"))]
     assert state.restore(refreshed) == [refreshed[0]]
     assert state.contains(refreshed[0])
+
+
+def test_selection_remaps_paths_after_rename():
+    state = ComicSelection()
+    comic = Comic(path=Path("/tmp/old.cbz"))
+    state.remember([comic])
+    state.remap_paths({str(comic.path): "/tmp/new.cbz"})
+    comic.path = Path("/tmp/new.cbz")
+    assert state.contains(comic)

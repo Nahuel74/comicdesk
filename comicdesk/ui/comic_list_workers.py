@@ -1,19 +1,86 @@
-"""Background workers for scanning and Comic Vine enrichment."""
+"""Background workers for library scan and bulk file rename."""
 
+from dataclasses import dataclass
 from pathlib import Path
-import re
+
 from PySide6.QtCore import QThread, Signal
 
 from comicdesk.models import Comic
 from comicdesk.services.cbz_reader import read_cbz_metadata
-from comicdesk.services.cbz_writer import write_cbz_metadata
-from comicdesk.services.comicvine_api import (
-    ComicVineClient, ComicVineError, RateLimitError, InvalidAPIKeyError,
-)
-from comicdesk.services.identification import apply_issue_to_comic
-from comicdesk.utils.url_parser import extract_comicvine_ids
-from comicdesk.models import ComicVineVolume
-from comicdesk.services.comicvine_mapping import apply_volume_metadata
+from comicdesk.utils.rename_template import RenamePlanRow, RenameRowStatus
+
+
+@dataclass
+class RenameResult:
+    """Outcome of renaming one CBZ file on disk."""
+
+    comic: Comic
+    old_path: Path
+    new_path: Path | None
+    error: str = ""
+
+
+class RenameWorker(QThread):
+    """Rename CBZ files on disk using a two-phase temp rename for batch safety."""
+
+    progress = Signal(int, int, str)
+    finished = Signal(list)
+
+    def __init__(self, rows: list[RenamePlanRow]):
+        super().__init__()
+        self.rows = [row for row in rows if row.status == RenameRowStatus.OK]
+        self._cancelled = False
+
+    def run(self):
+        results: list[RenameResult] = []
+        total = len(self.rows)
+        staged: list[tuple[RenamePlanRow, Path]] = []
+
+        for index, row in enumerate(self.rows):
+            if self._cancelled:
+                for pending_row, pending_temp in staged:
+                    self._restore_temp(pending_row, pending_temp, results)
+                break
+            temp_path = row.old_path.with_name(f".comicdesk-rename-{index}-{row.old_path.name}")
+            try:
+                row.old_path.rename(temp_path)
+                staged.append((row, temp_path))
+            except OSError as exc:
+                results.append(
+                    RenameResult(row.comic, row.old_path, None, str(exc))
+                )
+            self.progress.emit(index + 1, total, row.old_path.name)
+
+        for index, (row, temp_path) in enumerate(staged):
+            if self._cancelled:
+                self._restore_temp(row, temp_path, results)
+                continue
+            proposed = row.proposed_path
+            if proposed is None:
+                self._restore_temp(row, temp_path, results)
+                continue
+            try:
+                temp_path.rename(proposed)
+                results.append(RenameResult(row.comic, row.old_path, proposed, ""))
+            except OSError as exc:
+                results.append(RenameResult(row.comic, row.old_path, None, str(exc)))
+                self._restore_temp(row, temp_path, results)
+            self.progress.emit(index + 1, total, proposed.name)
+
+        self.finished.emit(results)
+
+    def _restore_temp(self, row: RenamePlanRow, temp_path: Path, results: list[RenameResult]):
+        if not temp_path.exists():
+            return
+        try:
+            temp_path.rename(row.old_path)
+        except OSError as exc:
+            results.append(
+                RenameResult(row.comic, row.old_path, None, f"Restore failed: {exc}")
+            )
+
+    def cancel(self):
+        self._cancelled = True
 
 
 class ScanWorker(QThread):
@@ -38,108 +105,6 @@ class ScanWorker(QThread):
                 except Exception as exc:
                     self.error.emit(f"Unable to read {cbz_file.name}: {exc}")
         self.finished.emit(comics)
-
-    def cancel(self):
-        self._cancelled = True
-
-
-class EnrichWorker(QThread):
-    progress = Signal(int, int)
-    finished = Signal(list, bool)
-    error = Signal(str)
-
-    def __init__(self, comics: list[Comic], api_key: str, cache_enabled: bool = True,
-                 batch_update: bool = False):
-        super().__init__()
-        self.comics = comics
-        self.api_key = api_key
-        self.cache_enabled = cache_enabled
-        self.batch_update = batch_update
-        self._cancelled = False
-
-    def run(self):
-        errors = False
-        total = len(self.comics)
-        try:
-            client = ComicVineClient(self.api_key, cache_enabled=self.cache_enabled)
-            self._active_client = client
-        except Exception as exc:
-            self.error.emit(f"API error: {exc}")
-            self.finished.emit(self.comics, True)
-            return
-        for i, comic in enumerate(self.comics):
-            if self._cancelled:
-                break
-            try:
-                self._enrich_comic(comic, client)
-            except InvalidAPIKeyError:
-                self.error.emit("Invalid API key"); errors = True; break
-            except RateLimitError:
-                self.error.emit("Rate limit exceeded — try again later"); errors = True; break
-            except ComicVineError as exc:
-                self.error.emit(f"API error: {exc}"); errors = True
-            except Exception as exc:
-                self.error.emit(f"API error: {exc}"); errors = True
-            self.progress.emit(i + 1, total)
-        self.finished.emit(self.comics, errors)
-
-    def _enrich_comic(self, comic, client):
-        if comic.has_cv_ids and not self.batch_update:
-            return
-        if comic.cv_issue_id:
-            issue = client.get_issue(comic.cv_issue_id)
-            if issue.series_id and not comic.cv_series_id:
-                comic.cv_series_id = issue.series_id
-            self._apply_issue_data(comic, issue); return
-        for url in comic.web_links:
-            ids = extract_comicvine_ids(url)
-            if ids.get("issue_id"):
-                comic.cv_issue_id = ids["issue_id"]
-                self._fetch_and_apply_issue(comic, client, ids["issue_id"]); return
-            if ids.get("series_id") and not comic.cv_series_id:
-                comic.cv_series_id = ids["series_id"]
-        if comic.cv_series_id or not (comic.series_name and comic.issue_number):
-            return
-        results = client.search_issue(f"{comic.series_name} #{comic.issue_number}")
-        if results:
-            partial = results[0]
-            comic.cv_issue_id = partial.id
-            if partial.series_id: comic.cv_series_id = partial.series_id
-            try:
-                issue = client.get_issue(partial.id)
-            except Exception:
-                issue = partial
-            self._apply_issue_data(comic, issue)
-
-    def _fetch_and_apply_issue(self, comic, client, issue_id):
-        issue = client.get_issue(issue_id)
-        if issue.series_id and not comic.cv_series_id:
-            comic.cv_series_id = issue.series_id
-        self._apply_issue_data(comic, issue)
-
-    def _apply_issue_data(self, comic, issue):
-        """Apply the complete Comic Vine issue payload to the local comic."""
-        apply_issue_to_comic(comic, issue, overwrite=self.batch_update)
-        if not self.batch_update and issue.web_url:
-            normalized = self._normalize_issue_url(issue.web_url, comic.cv_issue_id)
-            if normalized != issue.web_url and issue.web_url in comic.web_links:
-                comic.web_links.remove(issue.web_url)
-                comic.web_links.append(normalized)
-        if self.batch_update and comic.path and str(comic.path) != ".":
-            write_cbz_metadata(comic)
-
-    @staticmethod
-    def _normalize_issue_url(web_url, issue_id):
-        """Keep the persisted URL aligned with the comic's canonical issue ID."""
-        if not web_url or not issue_id:
-            return web_url
-        normalized_id = str(issue_id)
-        return re.sub(
-            r"(/4000-)\d+(?=/|$)",
-            lambda match: f"{match.group(1)}{normalized_id}",
-            web_url,
-            count=1,
-        )
 
     def cancel(self):
         self._cancelled = True

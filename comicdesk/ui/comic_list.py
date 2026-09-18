@@ -1,36 +1,23 @@
-"""Comic list panel with search, filtering and Comic Vine enrichment."""
+"""Comic list panel with search, filtering, and library actions."""
 
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelection, QItemSelectionModel, Signal, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHeaderView, QLabel, QMenu, QPushButton, QTableView,
+    QAbstractItemView, QDialog, QHeaderView, QLabel, QMenu, QPushButton, QTableView,
     QHBoxLayout, QMessageBox,
     QVBoxLayout, QWidget,
 )
 
 from comicdesk.models import Comic
 from comicdesk.ui.comic_list_toolbar import ComicListToolbar
-from comicdesk.ui.comic_list_workers import EnrichWorker as _EnrichWorker, ScanWorker
+from comicdesk.ui.comic_list_workers import RenameWorker, ScanWorker
+from comicdesk.ui.rename_files_dialog import RenameFilesDialog
 from comicdesk.ui.comic_table_model import ComicFilterProxyModel, ComicTableModel
 from comicdesk.ui.comic_selection import ComicSelection
-from comicdesk.services.comicvine_api import ComicVineClient
 from comicdesk.ui.theme import button_stylesheet, muted_label_stylesheet, table_stylesheet
 from comicdesk.ui.widgets.responsive_action_bar import ResponsiveActionBar
-
-
-class EnrichWorker(_EnrichWorker):
-    """Compatibility export retaining the historical patch point."""
-
-    def run(self):
-        from comicdesk.ui import comic_list_workers
-        factory = comic_list_workers.ComicVineClient
-        comic_list_workers.ComicVineClient = ComicVineClient
-        try:
-            return super().run()
-        finally:
-            comic_list_workers.ComicVineClient = factory
 
 
 class ComicListTable(QTableView):
@@ -63,6 +50,7 @@ class ComicList(QWidget):
     comic_edit_requested = Signal(object)
     comics_changed = Signal(list)
     scan_completed = Signal(list)
+    files_renamed = Signal(list)
 
     def __init__(self, config=None):
         super().__init__()
@@ -91,12 +79,6 @@ class ComicList(QWidget):
         actions_layout = QHBoxLayout(actions_row)
         actions_layout.setContentsMargins(12, 8, 12, 8)
         self.action_bar = ResponsiveActionBar()
-        self.enrich_btn = QPushButton("Enrich all metadata")
-        self.enrich_btn.setProperty("primary", True)
-        self.enrich_btn.setToolTip(
-            "Fetch and save external metadata for every comic in this folder"
-        )
-        self.enrich_btn.clicked.connect(self._on_enrich)
         self.add_selected_btn = QPushButton("Add to list")
         self.add_selected_btn.setToolTip("Add the selected comics to the reading list")
         self.add_selected_btn.setEnabled(False)
@@ -105,7 +87,13 @@ class ComicList(QWidget):
         self.clear_selection_btn.setToolTip("Clear the current comic selection")
         self.clear_selection_btn.setEnabled(False)
         self.clear_selection_btn.clicked.connect(self._clear_selection)
-        self.action_bar.add_action(self.enrich_btn, "Enrich all metadata")
+        self.rename_btn = QPushButton("Rename files…")
+        self.rename_btn.setToolTip(
+            "Rename selected CBZ files using a metadata template (or all comics if none selected)"
+        )
+        self.rename_btn.setEnabled(False)
+        self.rename_btn.clicked.connect(self._on_rename_files)
+        self.action_bar.add_action(self.rename_btn, "Rename files")
         self.action_bar.add_action(self.add_selected_btn, "Add to reading list")
         self.action_bar.add_action(self.clear_selection_btn, "Clear selection")
         actions_layout.addWidget(self.action_bar, 1)
@@ -121,7 +109,7 @@ class ComicList(QWidget):
     def apply_theme(self, theme: str) -> None:
         """Re-apply visual tokens for the active theme."""
         self._theme = theme
-        self.enrich_btn.setStyleSheet(button_stylesheet(theme, "primary"))
+        self.rename_btn.setStyleSheet(button_stylesheet(theme, "default"))
         self.table.setStyleSheet(table_stylesheet(theme))
         self.status_label.setStyleSheet(
             muted_label_stylesheet(theme) + " padding: 8px 12px;"
@@ -167,21 +155,20 @@ class ComicList(QWidget):
         self._scan_finished_handler = None
         self._scan_progress_handler = None
 
-    def _stop_enrich_worker(self):
-        """Cancel and reap an enrichment worker during window shutdown."""
-        worker = getattr(self, "enrich_worker", None)
+    def _stop_rename_worker(self):
+        worker = getattr(self, "rename_worker", None)
         if worker is None:
             return
         worker.cancel()
         if worker.isRunning():
             worker.wait()
         worker.deleteLater()
-        self.enrich_worker = None
+        self.rename_worker = None
 
     def shutdown_workers(self):
         """Synchronously stop every worker owned by this panel."""
         self._stop_scan_worker()
-        self._stop_enrich_worker()
+        self._stop_rename_worker()
 
     def _on_scan_progress(self, name, worker):
         if worker is self.worker:
@@ -195,54 +182,26 @@ class ComicList(QWidget):
         self.set_reading_list(self.reading_list)
         self.status_label.setText(f"Found {len(comics)} comics")
         self._update_counts()
+        self._update_rename_enabled()
         self.scan_completed.emit(comics)
 
     def _on_scan_error(self, message, worker):
         if worker is self.worker:
             self.status_label.setText(message)
 
-    def _on_enrich(self):
-        from comicdesk.ui.api_key_prompt import ensure_api_key
-
-        if not ensure_api_key(self, self.config, "Bulk metadata enrichment"):
-            return
-        answer = QMessageBox.question(self, "Confirm metadata update",
-            f"Update and permanently save external metadata for all {len(self.comics)} comics?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No)
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-        self.status_label.setText("Updating metadata for all comics…")
-        self.enrich_btn.setEnabled(False)
-        self.enrich_worker = EnrichWorker(
-            self.comics,
-            self.config.api_key,
-            cache_enabled=self.config.cache_enabled,
-            batch_update=True,
-        )
-        self.enrich_worker.finished.connect(self._on_enrich_complete)
-        self.enrich_worker.error.connect(lambda msg: self.status_label.setText(f"Error: {msg}"))
-        self.enrich_worker.progress.connect(
-            lambda cur, total: self.status_label.setText(f"Enriching: {cur}/{total}"))
-        self.enrich_worker.start()
-
-    def _on_enrich_complete(self, comics: list[Comic], error_occurred: bool):
-        enriched = sum(comic.has_cv_ids for comic in comics)
-        self._set_comics(comics)
-        self.set_reading_list(self.reading_list)
-        self.enrich_btn.setEnabled(True)
-        if not error_occurred:
-            self.status_label.setText(f"Enriched {enriched}/{len(comics)} comics")
-        self._update_counts()
-
     def _update_counts(self, *_args):
         selected = len(self.table.selectionModel().selectedRows())
         self.toolbar.set_counts(self.table.proxy_model.rowCount(), selected)
         self.add_selected_btn.setEnabled(selected > 0)
         self.clear_selection_btn.setEnabled(selected > 0)
+        self._update_rename_enabled()
         if selected:
             self.status_label.setText(f"{selected} comic(s) selected")
         self.comic_focused.emit(self._current_comic())
+
+    def _update_rename_enabled(self):
+        has_local = any(comic.has_local_file for comic in self.comics)
+        self.rename_btn.setEnabled(has_local)
 
     def _emit_focus(self):
         self.comic_focused.emit(self._current_comic())
@@ -295,6 +254,7 @@ class ComicList(QWidget):
         if selected:
             menu.addAction("➕ Add to Reading List", self._add_to_list)
             menu.addSeparator()
+            menu.addAction("Rename files…", self._on_rename_files)
             menu.addAction("Edit metadata", self._request_edit)
         menu.addAction("🌐 Open CV URL", lambda: self._open_cv_url(clicked_index))
         menu.exec(self.table.viewport().mapToGlobal(position))
@@ -341,6 +301,74 @@ class ComicList(QWidget):
         self._selection.clear()
         self._update_counts()
         self.status_label.setText("Selection cleared")
+
+    def _rename_targets(self) -> list[Comic]:
+        selected = self._selected_comics()
+        pool = selected if selected else list(self.comics)
+        return [comic for comic in pool if comic.has_local_file]
+
+    def _on_rename_files(self):
+        targets = self._rename_targets()
+        if not targets:
+            QMessageBox.information(
+                self,
+                "Rename files",
+                "No local CBZ files to rename in the current selection or folder.",
+            )
+            return
+        dialog = RenameFilesDialog(
+            targets,
+            config=self.config,
+            target_count=len(targets),
+            theme=self._theme,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        if self.config is not None:
+            self.config.last_rename_template = dialog.template_text()
+            self.config.rename_issue_pad_width = dialog.issue_pad_width()
+            self.config.save()
+        rows = dialog.plan_rows()
+        self.status_label.setText("Renaming files…")
+        self.rename_btn.setEnabled(False)
+        self.rename_worker = RenameWorker(rows)
+        self.rename_worker.progress.connect(
+            lambda current, total, name: self.status_label.setText(
+                f"Renaming: {current}/{total} — {name}"
+            )
+        )
+        self.rename_worker.finished.connect(self._on_rename_complete)
+        self.rename_worker.start()
+
+    def _on_rename_complete(self, results):
+        mapping: dict[str, str] = {}
+        renamed_comics: list[Comic] = []
+        failures = 0
+        for result in results:
+            if result.new_path is not None:
+                mapping[str(result.old_path)] = str(result.new_path)
+                result.comic.path = result.new_path
+                renamed_comics.append(result.comic)
+                self.refresh_comic(result.comic)
+            else:
+                failures += 1
+        if mapping:
+            self._selection.remap_paths(mapping)
+            self._restore_selection()
+        self.rename_btn.setEnabled(any(comic.has_local_file for comic in self.comics))
+        self.rename_worker = None
+        success = len(renamed_comics)
+        if failures:
+            self.status_label.setText(
+                f"Renamed {success} file(s); {failures} failed"
+            )
+        else:
+            self.status_label.setText(f"Renamed {success} file(s)")
+        if renamed_comics:
+            self.files_renamed.emit(renamed_comics)
+            self.comics_changed.emit(list(self.comics))
+        self._update_counts()
 
     def _open_cv_url(self, index=None):
         index = self.table.currentIndex() if index is None else index

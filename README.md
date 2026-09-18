@@ -6,7 +6,7 @@ ComicDesk is a PySide6 desktop app for local CBZ libraries: browse and enrich me
 
 ## Features
 
-- **Library** — folder browser, CBZ scan, search, metadata-status filter, bulk enrichment, add comics to a reading list
+- **Library** — folder browser, CBZ scan, search, metadata-status filter, bulk rename, add comics to a reading list
 - **Metadata** — transactional ComicInfo editing, online metadata search, per-folder instance list
 - **Lists** — import/export CBL, sort and reorder, live XML preview, manual **Add issue** (with metadata lookup), entries with or without a local file
 - **Acquire** — GetComics search, wishlist, sequential download queue
@@ -45,7 +45,7 @@ Open **Settings** (`Ctrl+,`):
 
 ## Usage
 
-**Library:** pick a folder → scan → filter/search → **Enrich all metadata** (needs API key).
+**Library:** pick a folder → scan → filter/search → edit metadata per comic or use **Rename files…**.
 
 **Metadata:** open a comic from Library (double-click or context menu) → search → apply proposal → save to CBZ.
 

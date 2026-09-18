@@ -88,6 +88,7 @@ class MainWindow(QMainWindow):
         self.metadata_panel.comic_focus_requested.connect(self.comic_list.focus_comic)
         self.metadata_panel.dirty_changed.connect(self.setWindowModified)
         self.comic_list.comics_changed.connect(self.metadata_panel.set_comics)
+        self.comic_list.files_renamed.connect(self._on_library_files_renamed)
         self.comic_list.scan_completed.connect(self._on_library_scan_completed)
         self.metadata_panel.set_comics(self.comic_list.comics)
         self.app_shell.navigation_changed.connect(self._on_navigation_changed)
@@ -223,6 +224,15 @@ class MainWindow(QMainWindow):
         if removed:
             self.statusbar.showMessage(
                 f"Removed {removed} acquired item(s) from the wishlist"
+            )
+
+    def _on_library_files_renamed(self, comics) -> None:
+        for comic in comics:
+            self.metadata_panel.notify_comic_renamed(comic)
+        self.reading_list_panel.refresh_table()
+        if comics:
+            self.statusbar.showMessage(
+                f"Renamed {len(comics)} file(s) on disk"
             )
 
     def _on_getcomics_download(self, comic):

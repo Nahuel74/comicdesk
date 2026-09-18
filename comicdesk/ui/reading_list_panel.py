@@ -194,6 +194,11 @@ class ReadingListPanel(QWidget):
         self._update_count()
         self._update_reorder_controls()
 
+    def refresh_table(self) -> None:
+        """Refresh visible rows when linked Comic paths change in place."""
+        if self._table_model.rowCount() > 0:
+            self._table_model.refresh()
+
     def _on_manual_drag_reorder(self) -> None:
         previous = self._list_snapshot()
         self._update_preview()

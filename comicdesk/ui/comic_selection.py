@@ -25,6 +25,12 @@ class ComicSelection:
     def clear(self):
         self._paths.clear()
 
+    def remap_paths(self, mapping: dict[str, str]):
+        """Replace remembered path keys after files are renamed on disk."""
+        if not mapping:
+            return
+        self._paths = {mapping.get(path, path) for path in self._paths}
+
     def contains(self, comic):
         return self._key(comic) in self._paths
 
