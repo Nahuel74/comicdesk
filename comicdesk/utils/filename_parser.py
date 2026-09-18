@@ -16,6 +16,7 @@ _ISSUE = re.compile(
     r"(?:^|[\s._#-])(?:#\s*)?(?P<issue>\d+(?:\.\d+)?)\s*$",
 )
 _TRAILING_TAGS = re.compile(r"(\s*[\[{][^\]}]*[\]}])+\s*$")
+_TRAILING_PAREN_TAG = re.compile(r"\s*\((?![0-9]{4}\))[^)]*\)\s*$")
 _SEPARATORS = re.compile(r"[._]+")
 
 
@@ -39,12 +40,14 @@ def parse_comic_filename(path: Path | str) -> ParsedFilename:
 
     stem = _SEPARATORS.sub(" ", stem)
     stem = _TRAILING_TAGS.sub("", stem).strip()
+    stem = _strip_trailing_paren_tags(stem)
 
     year = ""
     year_match = list(_YEAR.finditer(stem))
     if year_match:
         year = year_match[-1].group("year")
         stem = (stem[: year_match[-1].start()] + stem[year_match[-1].end() :]).strip()
+        stem = _strip_trailing_paren_tags(stem)
 
     volume = ""
     volume_match = _VOLUME.search(stem)
@@ -65,6 +68,16 @@ def parse_comic_filename(path: Path | str) -> ParsedFilename:
         volume=volume,
         year=year,
     )
+
+
+def _strip_trailing_paren_tags(stem: str) -> str:
+    """Remove trailing release-group parentheticals like (Digital) or (ScanGroup)."""
+    while stem:
+        match = _TRAILING_PAREN_TAG.search(stem)
+        if not match:
+            break
+        stem = stem[: match.start()].strip()
+    return stem
 
 
 def _strip_leading_zeros(value: str) -> str:

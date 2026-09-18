@@ -51,6 +51,16 @@ def test_accepts_stem_without_archive_suffix():
     assert parsed.issue_number == "4"
 
 
+def test_strips_parenthetical_release_tags_after_publication_year():
+    parsed = parse_comic_filename(
+        "Excalibur 001 (2004) (Digital) (Shadowcat-Empire).cbz"
+    )
+
+    assert parsed == ParsedFilename(
+        series_name="Excalibur", issue_number="1", volume="", year="2004"
+    )
+
+
 def test_empty_and_missing_paths_return_empty_metadata():
     assert parse_comic_filename(None) == ParsedFilename()
     assert parse_comic_filename("") == ParsedFilename()

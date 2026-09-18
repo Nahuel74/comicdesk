@@ -132,6 +132,46 @@ def test_issue_search_does_not_return_other_numbers_when_filter_misses():
     assert result.issues == []
 
 
+def test_publication_year_disambiguates_same_series_and_issue_number():
+    excalibur_2004 = issue(
+        "99098",
+        series_id="42340",
+        series_name="Excalibur",
+        volume="2004",
+        number="1",
+        store_date="2004-05-01",
+    )
+    excalibur_2019 = issue(
+        "730001",
+        series_id="122488",
+        series_name="Excalibur",
+        volume="2019",
+        number="1",
+        store_date="2019-10-01",
+    )
+    volume_2004 = SimpleNamespace(id="42340", name="Excalibur", start_year="2004")
+    volume_2019 = SimpleNamespace(id="122488", name="Excalibur", start_year="2019")
+    path = Path("Excalibur 001 (2004) (Digital) (Shadowcat-Empire).cbz")
+    comic = Comic(path)
+
+    class VolumeClient(Client):
+        def list_issues(self, series_id, issue_number):
+            self.calls.append(("list_issues", series_id, issue_number))
+            if series_id == "42340":
+                return [excalibur_2004]
+            if series_id == "122488":
+                return [excalibur_2019]
+            return []
+
+    client = VolumeClient(volumes=[volume_2004, volume_2019])
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue is excalibur_2004
+    assert ("search_volume", "Excalibur") in client.calls
+    assert ("list_issues", "42340", "1") in client.calls
+
+
 def test_series_volume_and_number_disambiguate_search_results():
     found = issue("21", series_name="Saga", volume="2", number="3")
     comic = Comic(Path("local.cbz"), series_name=" saga ", volume="2",
@@ -165,7 +205,8 @@ def test_filename_is_used_when_local_metadata_is_empty():
 
     assert result.status == STATUS_EXACT
     assert result.issue is found
-    assert client.calls[0] == ("search_issue", "Saga #3")
+    assert ("search_volume", "Saga") in client.calls
+    assert ("search_issue", "Saga #3") in client.calls
     assert comic.series_name == ""
 
 

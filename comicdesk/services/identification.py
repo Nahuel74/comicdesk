@@ -36,29 +36,39 @@ class IdentificationResult:
 
 def identify_comic(comic: Comic, client) -> IdentificationResult:
     """Identify a comic without mutating it or auto-picking ambiguous hits."""
+    parsed = parse_comic_filename(comic.path)
+    hint_year = _publication_year_hint(comic, parsed)
+
     if comic.cv_issue_id:
         issue = client.get_issue(comic.cv_issue_id)
         return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
 
-    issue_number = (comic.issue_number or "").strip()
+    issue_number = (comic.issue_number or "").strip() or parsed.issue_number
+    series_name = (comic.series_name or "").strip() or parsed.series_name
     if comic.cv_series_id and issue_number:
         listed = client.list_issues(comic.cv_series_id, issue_number)
-        exact = _unique_issue_match(listed, comic.series_name, issue_number)
+        exact = _unique_issue_match(listed, series_name, issue_number)
         if exact:
             hydrated = _hydrate_exact_issue(client, exact)
             if hydrated is not None:
                 exact = hydrated
             return IdentificationResult(STATUS_EXACT, issue=exact, issues=[exact])
         if listed:
+            narrowed = _narrow_issues_by_year(listed, hint_year)
+            if len(narrowed) == 1:
+                issue = _hydrate_exact_issue(client, narrowed[0]) or narrowed[0]
+                return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
+            if narrowed:
+                return IdentificationResult(STATUS_CANDIDATES, issues=narrowed)
             return IdentificationResult(STATUS_CANDIDATES, issues=listed)
 
-    series_name = (comic.series_name or "").strip()
     if series_name and issue_number:
-        by_volume = _lookup_by_volume_and_issue(client, series_name, issue_number)
+        by_volume = _lookup_by_volume_and_issue(
+            client, series_name, issue_number, hint_year
+        )
         if by_volume.status != STATUS_EMPTY:
             return by_volume
 
-    parsed = parse_comic_filename(comic.path)
     title = (comic.title or "").strip()
     queries = []
     if series_name and issue_number:
@@ -66,8 +76,8 @@ def identify_comic(comic: Comic, client) -> IdentificationResult:
     if series_name and title and not issue_number:
         queries.append((f"{series_name} {title}", series_name, ""))
 
-    inferred_series = series_name or parsed.series_name
-    inferred_issue = issue_number or parsed.issue_number
+    inferred_series = series_name
+    inferred_issue = issue_number
     inferred_title = title
     if inferred_series and inferred_issue:
         query = (f"{inferred_series} #{inferred_issue}", inferred_series, inferred_issue)
@@ -91,7 +101,7 @@ def identify_comic(comic: Comic, client) -> IdentificationResult:
             searched = client.search_issue(query)
         except Exception:
             continue
-        result = _from_issue_search(searched, query_series, query_issue)
+        result = _from_issue_search(searched, query_series, query_issue, hint_year)
         if result.status == STATUS_EXACT and result.issue is not None:
             hydrated = _hydrate_exact_issue(client, result.issue)
             if hydrated is not None:
@@ -103,6 +113,14 @@ def identify_comic(comic: Comic, client) -> IdentificationResult:
 
     if inferred_series:
         volumes = client.search_volume(inferred_series)
+        if volumes and hint_year:
+            by_year = [
+                volume
+                for volume in volumes
+                if _volume_start_year(volume) == hint_year
+            ]
+            if by_year:
+                volumes = by_year
         if volumes:
             return IdentificationResult(STATUS_CANDIDATES, volumes=volumes)
 
@@ -186,11 +204,16 @@ def _apply_volume_rich_fields(comic, volume, overwrite):
 
 
 def _from_issue_search(
-    results: list[ComicVineIssue], series_name: str, issue_number: str
+    results: list[ComicVineIssue],
+    series_name: str,
+    issue_number: str,
+    hint_year: str = "",
 ) -> IdentificationResult:
     matches = [issue for issue in results if _series_matches(issue.series_name, series_name)]
     if issue_number:
         matches = [issue for issue in matches if _issue_matches(issue.issue_number, issue_number)]
+    if len(matches) > 1 and hint_year:
+        matches = _narrow_issues_by_year(matches, hint_year) or matches
     if len(matches) == 1:
         issue = matches[0]
         return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
@@ -202,7 +225,7 @@ def _from_issue_search(
 
 
 def _lookup_by_volume_and_issue(
-    client, series_name: str, issue_number: str
+    client, series_name: str, issue_number: str, hint_year: str = ""
 ) -> IdentificationResult:
     """Resolve an issue by series name and number via volume search + issue filter."""
     try:
@@ -212,6 +235,14 @@ def _lookup_by_volume_and_issue(
     matched_volumes = [volume for volume in volumes if _series_matches(volume.name, series_name)]
     if not matched_volumes:
         matched_volumes = list(volumes[:5])
+    if hint_year and matched_volumes:
+        by_year = [
+            volume
+            for volume in matched_volumes
+            if _volume_start_year(volume) == hint_year
+        ]
+        if by_year:
+            matched_volumes = by_year
     issues: list[ComicVineIssue] = []
     seen_ids: set[str] = set()
     for volume in matched_volumes[:8]:
@@ -227,6 +258,12 @@ def _lookup_by_volume_and_issue(
             seen_ids.add(candidate.id)
             hydrated = _hydrate_exact_issue(client, candidate) or candidate
             issues.append(hydrated)
+    if len(issues) > 1 and hint_year:
+        narrowed = _narrow_issues_by_year(issues, hint_year)
+        if len(narrowed) == 1:
+            return IdentificationResult(STATUS_EXACT, issue=narrowed[0], issues=narrowed)
+        if narrowed:
+            issues = narrowed
     if len(issues) == 1:
         return IdentificationResult(STATUS_EXACT, issue=issues[0], issues=issues)
     if issues:
@@ -261,6 +298,45 @@ def _issue_matches(left: str, right: str) -> bool:
 
 def _norm_text(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").strip().casefold())
+
+
+def _publication_year_hint(comic: Comic, parsed) -> str:
+    for candidate in (comic.year, parsed.year):
+        text = (candidate or "").strip()
+        if re.fullmatch(r"(19|20)\d{2}", text):
+            return text
+    volume = (comic.volume or "").strip()
+    if re.fullmatch(r"(19|20)\d{2}", volume):
+        return volume
+    return ""
+
+
+def _volume_start_year(volume: ComicVineVolume) -> str:
+    return (getattr(volume, "start_year", None) or "").strip()
+
+
+def _issue_publication_year(issue: ComicVineIssue) -> str:
+    for value in (
+        issue.volume_start_year,
+        issue.volume,
+        (issue.store_date or "").split("-")[0],
+        (issue.cover_date or "").split("-")[0],
+    ):
+        text = (value or "").strip()
+        if re.fullmatch(r"(19|20)\d{2}", text):
+            return text
+    return ""
+
+
+def _narrow_issues_by_year(
+    issues: list[ComicVineIssue], hint_year: str
+) -> list[ComicVineIssue]:
+    if not hint_year:
+        return list(issues)
+    matched = [
+        issue for issue in issues if _issue_publication_year(issue) == hint_year
+    ]
+    return matched
 
 
 def _norm_issue(value: str) -> str:
