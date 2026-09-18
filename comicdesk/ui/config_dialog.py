@@ -9,7 +9,12 @@ from PySide6.QtCore import QThread, Signal
 
 from comicdesk.config import Config, normalize_theme
 from comicdesk.services.comicvine_api import ComicVineClient
-from comicdesk.ui.theme import button_stylesheet, colors_for, dialog_stylesheet
+from comicdesk.ui.theme import (
+    button_stylesheet,
+    colors_for,
+    dialog_stylesheet,
+    resolve_effective_theme,
+)
 
 
 class ValidateApiKeyWorker(QThread):
@@ -57,6 +62,8 @@ class ConfigDialog(QDialog):
         self.theme_combo = QComboBox()
         self.theme_combo.addItem("Dark", "dark")
         self.theme_combo.addItem("Light", "light")
+        self.theme_combo.addItem("System", "system")
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_combo_changed)
         theme_index = self.theme_combo.findData(normalize_theme(self.config.theme))
         if theme_index >= 0:
             self.theme_combo.setCurrentIndex(theme_index)
@@ -123,15 +130,24 @@ class ConfigDialog(QDialog):
         layout.addLayout(btn_layout)
         self.apply_theme(self._theme)
 
+    def _resolved_theme(self) -> str:
+        data = self.theme_combo.currentData()
+        preference = normalize_theme(data if data else self._theme)
+        return resolve_effective_theme(preference, self)
+
+    def _on_theme_combo_changed(self) -> None:
+        self.apply_theme(self.theme_combo.currentData() or self._theme)
+
     def apply_theme(self, theme: str) -> None:
         """Re-apply visual tokens for the active theme."""
         self._theme = normalize_theme(theme)
-        c = colors_for(self._theme)
-        self.setStyleSheet(dialog_stylesheet(self._theme))
+        resolved = self._resolved_theme()
+        c = colors_for(resolved)
+        self.setStyleSheet(dialog_stylesheet(resolved))
         self.title_label.setStyleSheet(
             f"font-size: 18px; font-weight: bold; color: {c['text']};"
         )
-        default_btn = button_stylesheet(self._theme, "default")
+        default_btn = button_stylesheet(resolved, "default")
         for button in (
             self.validate_btn,
             self.folder_btn,
@@ -139,7 +155,7 @@ class ConfigDialog(QDialog):
             self.cancel_btn,
         ):
             button.setStyleSheet(default_btn)
-        self.save_btn.setStyleSheet(button_stylesheet(self._theme, "primary"))
+        self.save_btn.setStyleSheet(button_stylesheet(resolved, "primary"))
 
     def _validate_key(self):
         """Validate the API key."""

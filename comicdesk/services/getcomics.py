@@ -243,12 +243,14 @@ def _normalize_issue_number(value: str) -> str:
 
 def build_search_query(book: CBLBook) -> str:
     """Build a GetComics name search query from a CBL reference."""
-    series = (book.series_name or "").strip()
-    if not series and book.cv_metadata:
-        series = (book.cv_metadata.series_name or "").strip()
-    issue = (book.issue_number or "").strip().lstrip("#")
-    if not issue and book.cv_metadata:
-        issue = (book.cv_metadata.issue_number or "").strip().lstrip("#")
+    from comicdesk.services.cbl_display import cbl_book_issue_label, cbl_book_series_label
+
+    series = cbl_book_series_label(book).strip()
+    if series == "—":
+        series = ""
+    issue = cbl_book_issue_label(book).strip().lstrip("#")
+    if issue == "—":
+        issue = ""
     if series and issue:
         return f"{series} #{issue}"
     if series:

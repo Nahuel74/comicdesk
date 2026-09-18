@@ -35,6 +35,11 @@ from PySide6.QtWidgets import (
 from comicdesk.config import Config
 from comicdesk.models import CBLBook
 from comicdesk.services.download_queue import DownloadQueueManager, DownloadStatus
+from comicdesk.services.cbl_display import (
+    cbl_book_issue_label,
+    cbl_book_series_label,
+    cbl_book_volume_label,
+)
 from comicdesk.services.getcomics import (
     GetComicsDownloadLink,
     GetComicsIssue,
@@ -671,9 +676,9 @@ class GetComicsPanel(QWidget):
         books = self._wishlist_manager.items() if self._wishlist_manager is not None else []
         self.wishlist_table.setRowCount(len(books))
         for row, book in enumerate(books):
-            self.wishlist_table.setItem(row, 0, QTableWidgetItem(book.series_name))
-            self.wishlist_table.setItem(row, 1, QTableWidgetItem(book.issue_number))
-            self.wishlist_table.setItem(row, 2, QTableWidgetItem(book.volume))
+            self.wishlist_table.setItem(row, 0, QTableWidgetItem(cbl_book_series_label(book)))
+            self.wishlist_table.setItem(row, 1, QTableWidgetItem(cbl_book_issue_label(book)))
+            self.wishlist_table.setItem(row, 2, QTableWidgetItem(cbl_book_volume_label(book)))
             self.wishlist_table.setItem(row, 3, QTableWidgetItem(book.cv_issue_id or ""))
             for column in range(4):
                 item = self.wishlist_table.item(row, column)

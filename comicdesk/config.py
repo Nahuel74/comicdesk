@@ -25,12 +25,13 @@ def _migrate_legacy_config() -> None:
     except OSError as exc:
         logger.warning("Failed to migrate legacy config: %s", exc)
 
-VALID_THEMES = frozenset({"dark", "light"})
+THEME_PREFERENCES = frozenset({"dark", "light", "system"})
+VALID_THEMES = THEME_PREFERENCES
 
 
 def normalize_theme(value: str) -> str:
-    """Return a valid theme name, defaulting to dark."""
-    return value if value in VALID_THEMES else "dark"
+    """Return a valid stored theme preference, defaulting to dark."""
+    return value if value in THEME_PREFERENCES else "dark"
 
 
 @dataclass

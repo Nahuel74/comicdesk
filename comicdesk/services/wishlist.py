@@ -12,6 +12,7 @@ from typing import Callable, Iterable
 
 from comicdesk.config import CONFIG_DIR
 from comicdesk.models import CBLBook, Comic, ComicVineMetadata
+from comicdesk.services.cbl_display import enrich_cbl_book, merge_cbl_book
 from comicdesk.services.cbl_reader import book_dedupe_key, reconcile_cbl
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ WISHLIST_FILE = CONFIG_DIR / "wishlist.json"
 class WishlistAddResult:
     """Outcome of adding books to the wishlist."""
     added: int = 0
+    updated: int = 0
     skipped_duplicates: int = 0
 
 
@@ -59,6 +61,7 @@ def _serialize_book(book: CBLBook) -> dict:
         "series_name": book.series_name,
         "volume": book.volume,
         "issue_number": book.issue_number,
+        "year": book.year,
         "cv_series_id": book.cv_series_id,
         "cv_issue_id": book.cv_issue_id,
         "position": book.position,
@@ -70,14 +73,17 @@ def _serialize_book(book: CBLBook) -> dict:
 
 
 def _deserialize_book(data: dict) -> CBLBook:
-    return CBLBook(
-        series_name=str(data.get("series_name", "")),
-        volume=str(data.get("volume", "")),
-        issue_number=str(data.get("issue_number", "")),
-        cv_series_id=data.get("cv_series_id") or None,
-        cv_issue_id=data.get("cv_issue_id") or None,
-        position=int(data.get("position", 0)),
-        cv_metadata=_deserialize_metadata(data.get("cv_metadata")),
+    return enrich_cbl_book(
+        CBLBook(
+            series_name=str(data.get("series_name", "")),
+            volume=str(data.get("volume", "")),
+            issue_number=str(data.get("issue_number", "")),
+            year=str(data.get("year", "")),
+            cv_series_id=data.get("cv_series_id") or None,
+            cv_issue_id=data.get("cv_issue_id") or None,
+            position=int(data.get("position", 0)),
+            cv_metadata=_deserialize_metadata(data.get("cv_metadata")),
+        )
     )
 
 
@@ -103,21 +109,56 @@ class WishlistManager:
 
     def add_books(self, books: Iterable[CBLBook]) -> WishlistAddResult:
         result = WishlistAddResult()
-        seen = {book_dedupe_key(book) for book in self._items}
+        index_by_key = {book_dedupe_key(book): index for index, book in enumerate(self._items)}
         changed = False
         for book in books:
-            key = book_dedupe_key(book)
-            if key in seen:
-                result.skipped_duplicates += 1
+            incoming = enrich_cbl_book(book)
+            key = book_dedupe_key(incoming)
+            if key in index_by_key:
+                index = index_by_key[key]
+                merged = merge_cbl_book(self._items[index], incoming)
+                if merged != self._items[index]:
+                    self._items[index] = merged
+                    result.updated += 1
+                    changed = True
+                else:
+                    result.skipped_duplicates += 1
                 continue
-            seen.add(key)
-            self._items.append(book)
+            index_by_key[key] = len(self._items)
+            self._items.append(incoming)
             result.added += 1
             changed = True
         if changed:
             self.save()
             self._notify_changed()
         return result
+
+    def repair_from_books(self, books: Iterable[CBLBook]) -> int:
+        """Update stored wishlist rows that match CBL references (e.g. after a re-import)."""
+        by_cv_issue: dict[str, CBLBook] = {}
+        by_key: dict[tuple, CBLBook] = {}
+        for book in books:
+            enriched = enrich_cbl_book(book)
+            if enriched.cv_issue_id:
+                by_cv_issue[str(enriched.cv_issue_id)] = enriched
+            by_key[book_dedupe_key(enriched)] = enriched
+        updated = 0
+        for index, item in enumerate(self._items):
+            incoming = None
+            if item.cv_issue_id:
+                incoming = by_cv_issue.get(str(item.cv_issue_id))
+            if incoming is None:
+                incoming = by_key.get(book_dedupe_key(item))
+            if incoming is None:
+                continue
+            merged = merge_cbl_book(item, incoming)
+            if merged != item:
+                self._items[index] = merged
+                updated += 1
+        if updated:
+            self.save()
+            self._notify_changed()
+        return updated
 
     def remove_books(self, books: Iterable[CBLBook]) -> int:
         keys = {book_dedupe_key(book) for book in books}

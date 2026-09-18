@@ -5,6 +5,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import QModelIndex
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from comicdesk.config import Config
@@ -96,6 +97,16 @@ def test_actions_follow_empty_and_non_empty_states(panel):
     assert not panel.clear_btn.isEnabled()
     assert not panel.save_btn.isEnabled()
     assert not panel.export_btn.isEnabled()
+
+
+def test_drag_reorder_moves_row_to_top(panel):
+    panel.add_comic(Comic(path="a.cbz", series_name="A", issue_number="1"))
+    panel.add_comic(Comic(path="b.cbz", series_name="B", issue_number="2"))
+    panel.add_comic(Comic(path="c.cbz", series_name="C", issue_number="3"))
+    model = panel._table_model
+    assert model.moveRows(QModelIndex(), 2, 1, QModelIndex(), 0)
+    assert [comic.series_name for comic in panel.reading_list.comics] == ["C", "A", "B"]
+    assert panel.reading_list.ordered_by == "manual"
 
 
 def test_export_uses_current_name_for_filename(panel, monkeypatch):
@@ -454,7 +465,7 @@ def test_import_keeps_missing_entries_in_reading_list(panel, monkeypatch):
     panel.import_cbl()
 
     assert len(panel.reading_list.comics) == 2
-    assert panel.table.item(1, panel._COL_FILE).text() == "Not in library"
+    assert panel._cell_text(1, panel._COL_FILE) == "Not in library"
 
 
 def test_import_all_matched_does_not_show_extra_information_dialog(panel, monkeypatch):
@@ -488,9 +499,9 @@ def test_reading_list_displays_series_name_not_title(panel):
     )
     panel.add_comic(comic)
 
-    assert panel.table.item(0, 3).text() == "Avengers"
-    assert panel.table.item(0, 5).text() == "22"
-    assert panel.table.item(0, 6).text() == "The Avengers assemble"
+    assert panel._cell_text(0, panel._COL_SERIES) == "Avengers"
+    assert panel._cell_text(0, panel._COL_ISSUE) == "22"
+    assert panel._cell_text(0, panel._COL_TITLE) == "The Avengers assemble"
 
 
 def test_reading_list_displays_release_date(panel):
@@ -504,9 +515,9 @@ def test_reading_list_displays_release_date(panel):
     )
     panel.add_comic(comic)
 
-    assert panel.table.item(0, 3).text() == "Amazing Spider-Man"
-    assert panel.table.item(0, 5).text() == "700"
-    assert panel.table.item(0, 7).text() == "2013-07-04"
+    assert panel._cell_text(0, panel._COL_SERIES) == "Amazing Spider-Man"
+    assert panel._cell_text(0, panel._COL_ISSUE) == "700"
+    assert panel._cell_text(0, panel._COL_RELEASE) == "2013-07-04"
 
 
 # --- Tests for last CBL directory persistence ---

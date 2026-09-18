@@ -50,7 +50,7 @@ bash packaging/verify_build.sh
 | `last_cbl_directory` | str | `""` |
 | `getcomics_download_folder` | str | `""` |
 | `auto_enrich_after_download` | bool | `True` |
-| `theme` | str | `"dark"` |
+| `theme` | str | `"dark"` (`dark`, `light`, or `system`) |
 
 ### UI (primary nav)
 

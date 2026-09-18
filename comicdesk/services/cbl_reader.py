@@ -7,6 +7,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from comicdesk.models import CBLBook, Comic, ComicVineMetadata, ReadingList
+from comicdesk.services.cbl_display import enrich_cbl_book
 
 
 LEGACY_NAMESPACE = "https://cbl-maker.dev/xml/metadata"
@@ -131,16 +132,29 @@ def read_cbl(source: Union[str, bytes, Path]) -> CBLDocument:
                     if database is not None else {})
         # ComicRack commonly uses attributes; accepting child fields makes the
         # importer useful with CBL producers that emit element-based XML.
-        series = attrs.get("seriesname", "") or _child_text(element, "seriesname")
-        volume = attrs.get("volume", "") or _child_text(element, "volume")
-        issue = attrs.get("issue", "") or _child_text(element, "issue")
+        series = _first_book_field(attrs, element, "seriesname", "series")
+        volume = _first_book_field(attrs, element, "volume")
+        issue = _first_book_field(attrs, element, "issue", "number")
+        year = _first_book_field(attrs, element, "year")
         cv_issue = db_attrs.get("issue") or attrs.get("cvissueid")
         cv_series = db_attrs.get("series") or attrs.get("cvseriesid")
         if db_attrs.get("name", "").lower() not in {"", "cv", "comicvine"}:
             cv_issue = cv_series = None
         metadata = _read_cv_metadata(element)
-        books.append(CBLBook(series, volume, issue, cv_series or None,
-                             cv_issue or None, index, metadata))
+        books.append(
+            enrich_cbl_book(
+                CBLBook(
+                    series,
+                    volume,
+                    issue,
+                    year,
+                    cv_series or None,
+                    cv_issue or None,
+                    index,
+                    metadata,
+                )
+            )
+        )
     return CBLDocument(name=name, books=_deduplicate(books),
                        ordered_by=ordered_by, order_direction=direction)
 
@@ -290,6 +304,17 @@ def _child_text(element: ET.Element, name: str) -> str:
     for child in element:
         if _local(child.tag).lower() == name.lower() and child.text:
             return _clean(child.text)
+    return ""
+
+
+def _first_book_field(attrs: dict, element: ET.Element, *names: str) -> str:
+    """Return the first non-empty Book field from attributes or child elements."""
+    for name in names:
+        value = attrs.get(name.casefold(), "")
+        if not value:
+            value = _child_text(element, name)
+        if value:
+            return value
     return ""
 
 def _read_cv_metadata(book: ET.Element) -> ComicVineMetadata | None:

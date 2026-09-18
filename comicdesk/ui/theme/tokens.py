@@ -23,6 +23,7 @@ THEMES = {
         "syntax_attr": "#bae6fd",
         "syntax_quote": "#fdba74",
         "gridline": "#2f2f35",
+        "row_alt": "#1f1f23",
         "nav_bg": "#1f1f23",
     },
     "light": {
@@ -47,6 +48,7 @@ THEMES = {
         "syntax_attr": "#1e40af",
         "syntax_quote": "#c2410c",
         "gridline": "#e4e4e7",
+        "row_alt": "#ececef",
         "nav_bg": "#ffffff",
     },
 }

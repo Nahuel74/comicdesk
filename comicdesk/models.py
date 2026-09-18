@@ -104,6 +104,7 @@ class CBLBook:
     series_name: str = ""
     volume: str = ""
     issue_number: str = ""
+    year: str = ""
     cv_series_id: Optional[str] = None
     cv_issue_id: Optional[str] = None
     position: int = 0
@@ -116,6 +117,7 @@ class CBLBook:
             series_name=self.series_name,
             volume=self.volume,
             issue_number=self.issue_number,
+            year=self.year,
             cv_series_id=self.cv_series_id,
             cv_issue_id=self.cv_issue_id,
             cv_metadata=self.cv_metadata,
@@ -196,6 +198,18 @@ class ReadingList:
             self.order_direction = "asc"
         except ValueError:
             pass
+
+    def move_comic_to_index(self, from_index: int, to_index: int) -> None:
+        """Move a comic from one list index to another."""
+        if from_index < 0 or from_index >= len(self.comics):
+            return
+        to_index = max(0, min(len(self.comics) - 1, to_index))
+        if from_index == to_index:
+            return
+        comic = self.comics.pop(from_index)
+        self.comics.insert(to_index, comic)
+        self.ordered_by = "manual"
+        self.order_direction = "asc"
 
 
 @dataclass

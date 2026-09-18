@@ -17,7 +17,11 @@ from comicdesk.services.wishlist import WishlistManager
 from comicdesk.ui.shell.acquire_page import AcquirePage
 from comicdesk.ui.shell.app_shell import AppShell
 from comicdesk.ui.shell.primary_nav import NAV_ACQUIRE, NAV_METADATA, NAV_LISTS
-from comicdesk.ui.theme import application_font, application_stylesheet
+from comicdesk.ui.theme import (
+    application_font,
+    application_stylesheet,
+    resolve_effective_theme,
+)
 from comicdesk.ui.widgets.collapsible_sidebar import CollapsibleSidebar
 
 
@@ -87,15 +91,23 @@ class MainWindow(QMainWindow):
         self.comic_list.scan_completed.connect(self._on_library_scan_completed)
         self.metadata_panel.set_comics(self.comic_list.comics)
         self.app_shell.navigation_changed.connect(self._on_navigation_changed)
-
-    def _apply_theme(self) -> None:
-        theme = normalize_theme(self.config.theme)
         app = QApplication.instance()
         if app is not None:
-            app.setStyleSheet(application_stylesheet(theme))
+            app.styleHints().colorSchemeChanged.connect(self._on_system_color_scheme_changed)
+
+    def _apply_theme(self) -> None:
+        preference = normalize_theme(self.config.theme)
+        app = QApplication.instance()
+        resolved = resolve_effective_theme(preference, app)
+        if app is not None:
+            app.setStyleSheet(application_stylesheet(resolved))
         self.setFont(application_font())
         self.setStyleSheet("")
-        self.app_shell.apply_theme(theme)
+        self.app_shell.apply_theme(resolved)
+
+    def _on_system_color_scheme_changed(self, _scheme) -> None:
+        if normalize_theme(self.config.theme) == "system":
+            self._apply_theme()
 
     def _setup_menu(self):
         menubar = self.menuBar()

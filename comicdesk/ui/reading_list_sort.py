@@ -10,6 +10,7 @@ class ReadingListSort(QWidget):
     """Criterion and direction; sorting runs when the user clicks Apply."""
 
     apply_requested = Signal()
+    remove_requested = Signal()
 
     CRITERIA = (
         ("release_date", "Release Date"),
@@ -42,6 +43,13 @@ class ReadingListSort(QWidget):
         layout.addWidget(self.apply_button)
         self.state_label = QLabel("Sorted")
         layout.addWidget(self.state_label)
+        self.reorder_hint = QLabel("Drag rows to reorder (custom order).")
+        layout.addWidget(self.reorder_hint)
+        self.remove_button = QPushButton("Remove")
+        self.remove_button.setToolTip("Remove selected row from the list")
+        self.remove_button.setFixedHeight(28)
+        self.remove_button.clicked.connect(self.remove_requested.emit)
+        layout.addWidget(self.remove_button)
         layout.addStretch(1)
         self.apply_theme(self._theme)
 
@@ -52,7 +60,10 @@ class ReadingListSort(QWidget):
         self.setStyleSheet(f"color: {c['text']};")
         self.order_label.setStyleSheet(f"color: {c['text']};")
         self.state_label.setStyleSheet(muted_label_stylesheet(theme))
-        self.apply_button.setStyleSheet(button_stylesheet(theme, "compact"))
+        self.reorder_hint.setStyleSheet(muted_label_stylesheet(theme, size=11))
+        compact = button_stylesheet(theme, "compact")
+        self.apply_button.setStyleSheet(compact)
+        self.remove_button.setStyleSheet(compact)
 
     @property
     def criterion(self):
@@ -64,3 +75,7 @@ class ReadingListSort(QWidget):
 
     def set_order_state(self, manual: bool) -> None:
         self.state_label.setText("Custom order" if manual else "Sorted")
+        self.reorder_hint.setVisible(manual)
+
+    def set_reorder_enabled(self, enabled: bool) -> None:
+        self.remove_button.setEnabled(enabled)

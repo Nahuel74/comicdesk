@@ -19,4 +19,4 @@ def qapp():
 def test_config_dialog_builds_offscreen(qapp):
     dialog = ConfigDialog(Config())
     assert dialog.title_label.text() == "Settings"
-    assert dialog.theme_combo.count() == 2
+    assert dialog.theme_combo.count() == 3

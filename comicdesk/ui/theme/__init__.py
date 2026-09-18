@@ -1,5 +1,6 @@
 """Shared visual tokens and application-level Qt styles."""
 
+from comicdesk.ui.theme.resolve import resolve_effective_theme
 from comicdesk.ui.theme.tokens import (
     COLORS,
     FONT_FAMILY,
@@ -41,6 +42,7 @@ __all__ = [
     "button_stylesheet",
     "cbl_preview_stylesheet",
     "colors_for",
+    "resolve_effective_theme",
     "dialog_stylesheet",
     "download_queue_panel_stylesheet",
     "getcomics_panel_stylesheet",

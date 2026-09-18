@@ -68,7 +68,19 @@ def test_save_includes_theme(tmp_path, monkeypatch):
 
 def test_normalize_theme_helper():
     assert normalize_theme("light") == "light"
+    assert normalize_theme("system") == "system"
     assert normalize_theme("unknown") == "dark"
+
+
+def test_save_includes_system_theme(tmp_path, monkeypatch):
+    config_file = tmp_path / "config.json"
+    monkeypatch.setattr(config_module, "CONFIG_DIR", tmp_path)
+    monkeypatch.setattr(config_module, "CONFIG_FILE", config_file)
+
+    Config(theme="system").save()
+
+    data = json.loads(config_file.read_text(encoding="utf-8"))
+    assert data["theme"] == "system"
 
 
 def test_migrates_legacy_config_dir(tmp_path, monkeypatch):

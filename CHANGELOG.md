@@ -4,6 +4,18 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+### Added
+
+- Settings **System** theme follows the OS light/dark appearance
+- Reading list drag-and-drop reorder (custom order); Remove for the selected row
+
+### Changed
+
+- CBL import reads ComicRack `Series`, `Number`, and `Year` book attributes (not only `SeriesName`/`Issue`); wishlist labels use embedded Comic Vine metadata when book fields are empty
+- Re-importing a CBL repairs existing wishlist rows (same Comic Vine issue) that were saved with empty series/issue before the parser fix
+- Table alternating rows use ComicDesk theme tokens instead of the system palette
+- Reading list table drops per-row move/remove columns for clearer layout
+
 ## [1.6.0] - 2026-09-14
 
 ### Added

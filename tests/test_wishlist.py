@@ -10,6 +10,39 @@ def test_book_dedupe_key_prefers_cv_issue():
     assert book_dedupe_key(book) == ("cv", "123", "")
 
 
+def test_add_books_upgrades_empty_duplicate_from_cbl(tmp_path):
+    path = tmp_path / "wishlist.json"
+    manager = WishlistManager(path=path)
+    stale = CBLBook(series_name="", issue_number="", volume="2004", cv_issue_id="120015")
+    manager.add_books([stale])
+    fresh = CBLBook(
+        series_name="Excalibur",
+        issue_number="13",
+        volume="2004",
+        year="2005",
+        cv_issue_id="120015",
+    )
+    result = manager.add_books([fresh])
+    assert result.added == 0
+    assert result.updated == 1
+    item = manager.items()[0]
+    assert item.series_name == "Excalibur"
+    assert item.issue_number == "13"
+
+
+def test_repair_from_books_updates_existing_wishlist(tmp_path):
+    path = tmp_path / "wishlist.json"
+    manager = WishlistManager(path=path)
+    manager.add_books([
+        CBLBook(series_name="", issue_number="", cv_issue_id="104861", volume="2005"),
+    ])
+    repaired = manager.repair_from_books([
+        CBLBook(series_name="House of M", issue_number="1", cv_issue_id="104861"),
+    ])
+    assert repaired == 1
+    assert manager.items()[0].series_name == "House of M"
+
+
 def test_add_books_deduplicates(tmp_path):
     path = tmp_path / "wishlist.json"
     manager = WishlistManager(path=path)

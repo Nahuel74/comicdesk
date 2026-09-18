@@ -24,6 +24,37 @@ XML = """<ReadingList><Name>Example</Name><Books>
 </Books></ReadingList>"""
 
 
+COMICRACK_BOOK_XML = """<ReadingList><Name>House of M</Name>
+<Book Series="Excalibur" Number="13" Volume="2004" Year="2005">
+  <Database Name="cv" Series="11292" Issue="120015" />
+</Book>
+</ReadingList>"""
+
+
+def test_reads_comicrack_series_number_and_year_attributes():
+    document = read_cbl(COMICRACK_BOOK_XML)
+    book = document.books[0]
+    assert book.series_name == "Excalibur"
+    assert book.issue_number == "13"
+    assert book.volume == "2004"
+    assert book.year == "2005"
+    assert book.cv_series_id == "11292"
+    assert book.cv_issue_id == "120015"
+    comic = book.to_comic()
+    assert comic.series_name == "Excalibur"
+    assert comic.issue_number == "13"
+    assert comic.year == "2005"
+    assert not comic.has_local_file
+
+
+def test_ordered_comics_for_import_preserves_comicrack_metadata():
+    document = read_cbl(COMICRACK_BOOK_XML)
+    ordered = ordered_comics_for_import(document, [])
+    assert len(ordered) == 1
+    assert ordered[0].series_name == "Excalibur"
+    assert ordered[0].issue_number == "13"
+
+
 def test_reads_name_and_book_references():
     document = read_cbl(XML)
     assert document.name == "Example"

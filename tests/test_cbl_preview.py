@@ -32,8 +32,8 @@ def test_panel_regenerates_with_current_name_and_comics(qapp):
     panel.name_label.setText("Renamed")
     panel.header.commit_name()
     assert "Renamed" in panel.preview.toPlainText()
-    panel._move_down(0)
-    panel._remove_at(0)
+    panel.table.selectRow(0)
+    panel._remove_selected()
     assert panel.preview.toPlainText() == ""
     panel.close()
 

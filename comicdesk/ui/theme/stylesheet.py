@@ -78,6 +78,7 @@ def _common_widget_styles(c: dict) -> str:
         }}
         QTableView, QTableWidget {{
             background-color: {c['canvas']};
+            alternate-background-color: {c['row_alt']};
             color: {c['text']};
             border: none;
             gridline-color: {c['gridline']};
@@ -398,6 +399,7 @@ def table_stylesheet(theme: str = "dark") -> str:
     return f"""
         QTableView, QTableWidget {{
             background: {c['canvas']};
+            alternate-background-color: {c['row_alt']};
             color: {c['text']};
             border: none;
             gridline-color: {c['gridline']};
