@@ -4,8 +4,11 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-18
+
 ### Fixed
 
+- Comic Vine search now parses issue numbers from filenames with trailing `(Digital)` / scan-group tags and uses the publication year to disambiguate duplicate series names (e.g. multiple *Excalibur* #1)
 - GetComics issue parsing omitted direct-host download buttons (TERABOX, VIKINGFILE, etc.) when they were not `/dls/` links
 
 ### Added
