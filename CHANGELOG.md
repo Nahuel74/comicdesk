@@ -4,6 +4,10 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+### Fixed
+
+- GetComics issue parsing omitted direct-host download buttons (TERABOX, VIKINGFILE, etc.) when they were not `/dls/` links
+
 ### Added
 
 - Settings **System** theme follows the OS light/dark appearance

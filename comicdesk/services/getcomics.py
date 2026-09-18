@@ -54,9 +54,16 @@ DIRECT_PROVIDER_KEYWORDS = (
     "server #1",
     "getcomics",
 )
+DOWNLOAD_LINK_SELECTORS = (
+    'a[href*="/dls/"]',
+    "div.aio-button-center a[title][href]",
+)
+
 MANUAL_PROVIDER_KEYWORDS = (
     "mega",
     "pixeldrain",
+    "terabox",
+    "vikingfile",
     "mediafire",
     "zippyshare",
     "torrent",
@@ -376,7 +383,8 @@ def _parse_search_results(html: str) -> list[GetComicsSearchResult]:
 def _extract_download_links(soup: BeautifulSoup) -> list[GetComicsDownloadLink]:
     links: list[GetComicsDownloadLink] = []
     seen: set[str] = set()
-    for anchor in soup.select('a[href*="/dls/"]'):
+    selector = ", ".join(DOWNLOAD_LINK_SELECTORS)
+    for anchor in soup.select(selector):
         href = urljoin(BASE_URL, anchor.get("href", ""))
         if not href or href in seen:
             continue

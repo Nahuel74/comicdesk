@@ -63,6 +63,34 @@ def test_parse_issue_page():
     assert download_now.is_auto_downloadable is True
 
 
+def test_parse_issue_page_aio_button_direct_hosts():
+    html = """
+    <html><body><article>
+      <h1 class="post-title">Excalibur Vol. 3 #1 – 14 (2004-2005)</h1>
+      <div class="entry-content">
+        <h2>Free Comics Download</h2>
+        <div class="aio-button-center">
+          <div class="aio-pulse">
+            <a href="https://1024terabox.com/s/example" title="TERABOX">TERABOX</a>
+          </div>
+        </div>
+        <div class="aio-button-center">
+          <div class="aio-pulse">
+            <a href="https://getcomics.org/dls/mega123/" title="MEGA">MEGA</a>
+          </div>
+        </div>
+      </div>
+    </article></body></html>
+    """
+    issue = _parse_issue_page(html)
+    providers = {link.provider for link in issue.download_links}
+    assert providers == {"TERABOX", "MEGA"}
+    assert len(issue.download_links) == 2
+    terabox = next(link for link in issue.download_links if link.provider == "TERABOX")
+    assert terabox.url == "https://1024terabox.com/s/example"
+    assert terabox.is_auto_downloadable is False
+
+
 def test_parse_title_metadata():
     parsed = _parse_title_metadata("Batman #007 (2018)")
     assert parsed.series_name == "Batman"
