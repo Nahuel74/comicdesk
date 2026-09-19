@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import httpx
-from PySide6.QtCore import QSize, Qt, QThread, Signal
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog,
@@ -21,95 +20,22 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QVBoxLayout,
-    QWidget,
 )
 
 from comicdesk.config import Config
 from comicdesk.models import Comic, ComicVineIssue, ComicVineVolume
 from comicdesk.ui.cbz_metadata_workers import MetadataSearchWorker
-from comicdesk.ui.theme import dialog_stylesheet, muted_label_stylesheet
+from comicdesk.ui.comicvine_candidate_widgets import (
+    CANDIDATE_ROW_HEIGHT,
+    COVER_HEIGHT,
+    COVER_WIDTH,
+    CandidateResultRow,
+    CoverLoader,
+    candidate_lines,
+)
+from comicdesk.ui.theme import dialog_stylesheet
 
 logger = logging.getLogger(__name__)
-
-_COVER_WIDTH = 52
-_COVER_HEIGHT = 78
-_ROW_HEIGHT = 88
-
-
-class _CoverLoader(QThread):
-    finished = Signal(bytes, int)
-    error = Signal(int)
-
-    def __init__(self, url: str, row: int):
-        super().__init__()
-        self.url = url
-        self.row = row
-        self._cancelled = False
-
-    def run(self) -> None:
-        if self._cancelled or not self.url:
-            return
-        try:
-            response = httpx.get(
-                self.url,
-                timeout=20,
-                follow_redirects=True,
-                headers={"User-Agent": "ComicDesk/1.0"},
-            )
-            response.raise_for_status()
-            if not self._cancelled:
-                self.finished.emit(response.content, self.row)
-        except Exception:
-            logger.debug("cover_load_failed url=%s", self.url, exc_info=True)
-            if not self._cancelled:
-                self.error.emit(self.row)
-
-    def cancel(self) -> None:
-        self._cancelled = True
-
-
-class _CandidateResultRow(QWidget):
-    """One search hit with cover art and descriptive text."""
-
-    def __init__(self, headline: str, subtitle: str, detail: str, theme: str, parent=None):
-        super().__init__(parent)
-        self._theme = theme
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(10)
-        self.cover_label = QLabel("…")
-        self.cover_label.setFixedSize(_COVER_WIDTH, _COVER_HEIGHT)
-        self.cover_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.cover_label.setStyleSheet(muted_label_stylesheet(theme))
-        layout.addWidget(self.cover_label)
-        text_column = QVBoxLayout()
-        text_column.setSpacing(2)
-        self.headline_label = QLabel(headline)
-        self.headline_label.setWordWrap(True)
-        self.subtitle_label = QLabel(subtitle)
-        self.subtitle_label.setWordWrap(True)
-        self.subtitle_label.setStyleSheet(muted_label_stylesheet(theme))
-        self.detail_label = QLabel(detail)
-        self.detail_label.setWordWrap(True)
-        self.detail_label.setStyleSheet(muted_label_stylesheet(theme))
-        text_column.addWidget(self.headline_label)
-        text_column.addWidget(self.subtitle_label)
-        text_column.addWidget(self.detail_label)
-        text_column.addStretch()
-        layout.addLayout(text_column, 1)
-
-    def set_cover_pixmap(self, pixmap: QPixmap) -> None:
-        scaled = pixmap.scaled(
-            self.cover_label.size(),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self.cover_label.setPixmap(scaled)
-        self.cover_label.setText("")
-
-    def set_cover_failed(self) -> None:
-        self.cover_label.setText("—")
-        self.cover_label.setPixmap(QPixmap())
 
 
 class AddReadingListIssueDialog(QDialog):
@@ -119,7 +45,7 @@ class AddReadingListIssueDialog(QDialog):
         super().__init__(parent)
         self.config = config
         self._search_worker: MetadataSearchWorker | None = None
-        self._cover_loaders: list[_CoverLoader] = []
+        self._cover_loaders: list[CoverLoader] = []
         self._issue_title = ""
         self._theme = "dark"
         self._form_fields: list[QLineEdit] = []
@@ -170,7 +96,7 @@ class AddReadingListIssueDialog(QDialog):
         layout.addWidget(self.results_label)
         self.results_list = QListWidget()
         self.results_list.setMinimumHeight(200)
-        self.results_list.setIconSize(QSize(_COVER_WIDTH, _COVER_HEIGHT))
+        self.results_list.setIconSize(QSize(COVER_WIDTH, COVER_HEIGHT))
         self.results_list.itemDoubleClicked.connect(self._apply_candidate)
         layout.addWidget(self.results_list)
 
@@ -289,16 +215,16 @@ class AddReadingListIssueDialog(QDialog):
             candidates = volumes
         self.results_list.clear()
         for row, candidate in enumerate(candidates):
-            headline, subtitle, detail = self._candidate_lines(candidate)
+            headline, subtitle, detail = candidate_lines(candidate)
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, candidate)
-            item.setSizeHint(QSize(0, _ROW_HEIGHT))
-            row_widget = _CandidateResultRow(headline, subtitle, detail, self._theme)
+            item.setSizeHint(QSize(0, CANDIDATE_ROW_HEIGHT))
+            row_widget = CandidateResultRow(headline, subtitle, detail, self._theme)
             self.results_list.addItem(item)
             self.results_list.setItemWidget(item, row_widget)
             image_url = getattr(candidate, "image_url", "") or ""
             if image_url:
-                loader = _CoverLoader(image_url, row)
+                loader = CoverLoader(image_url, row)
                 loader.finished.connect(
                     lambda data, r, w=loader: self._on_cover_loaded(data, r, w)
                 )
@@ -310,7 +236,7 @@ class AddReadingListIssueDialog(QDialog):
             f"{count} result{'s' if count != 1 else ''}" if count else "No results"
         )
 
-    def _on_cover_loaded(self, data: bytes, row: int, worker: _CoverLoader) -> None:
+    def _on_cover_loaded(self, data: bytes, row: int, worker: CoverLoader) -> None:
         if worker in self._cover_loaders:
             self._cover_loaders.remove(worker)
         worker.deleteLater()
@@ -318,13 +244,13 @@ class AddReadingListIssueDialog(QDialog):
             return
         item = self.results_list.item(row)
         widget = self.results_list.itemWidget(item)
-        if not isinstance(widget, _CandidateResultRow):
+        if not isinstance(widget, CandidateResultRow):
             return
         pixmap = QPixmap()
         if pixmap.loadFromData(data):
             widget.set_cover_pixmap(pixmap)
 
-    def _on_cover_error(self, row: int, worker: _CoverLoader) -> None:
+    def _on_cover_error(self, row: int, worker: CoverLoader) -> None:
         if worker in self._cover_loaders:
             self._cover_loaders.remove(worker)
         worker.deleteLater()
@@ -332,7 +258,7 @@ class AddReadingListIssueDialog(QDialog):
             return
         item = self.results_list.item(row)
         widget = self.results_list.itemWidget(item)
-        if isinstance(widget, _CandidateResultRow):
+        if isinstance(widget, CandidateResultRow):
             widget.set_cover_failed()
 
     def _search_error(self, message: str, worker) -> None:
@@ -342,35 +268,6 @@ class AddReadingListIssueDialog(QDialog):
         worker.deleteLater()
         self._set_search_busy(False)
         self.results_label.setText(message)
-
-    @staticmethod
-    def _release_label(issue: ComicVineIssue) -> str:
-        store = (issue.store_date or "").strip()
-        if store:
-            return f"Released: {store[:10]}"
-        return ""
-
-    @classmethod
-    def _candidate_lines(cls, candidate) -> tuple[str, str, str]:
-        if isinstance(candidate, ComicVineIssue):
-            series = candidate.series_name or "Unknown series"
-            number = candidate.issue_number or "?"
-            headline = f"{series} #{number}"
-            subtitle = (candidate.name or "").strip() or "—"
-            detail = cls._release_label(candidate)
-            if not detail:
-                year = candidate.volume_start_year or ""
-                if year:
-                    detail = f"Series started: {year}"
-            return headline, subtitle, detail
-        if isinstance(candidate, ComicVineVolume):
-            headline = candidate.name or "Unknown series"
-            subtitle = "Series / volume"
-            year = candidate.start_year or ""
-            detail = f"Started: {year}" if year else ""
-            return headline, subtitle, detail
-        name = getattr(candidate, "name", "") or getattr(candidate, "series_name", "")
-        return name or "Result", "", ""
 
     def _apply_candidate(self, item: QListWidgetItem | None = None) -> None:
         if item is None:

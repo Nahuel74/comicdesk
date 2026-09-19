@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import html
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 from comicdesk.models import Comic, ComicVineIssue, ComicVineVolume
@@ -237,7 +238,7 @@ def _lookup_by_volume_and_issue(
         volumes = []
     matched_volumes = [volume for volume in volumes if _series_matches(volume.name, series_name)]
     if not matched_volumes:
-        matched_volumes = list(volumes[:SEARCH_RESULT_LIMIT])
+        return IdentificationResult(STATUS_EMPTY)
     if hint_year and matched_volumes:
         by_year = [
             volume
@@ -292,15 +293,32 @@ def _unique_issue_match(
 
 
 def _series_matches(left: str, right: str) -> bool:
-    return _norm_text(left) == _norm_text(right)
+    return _norm_series(left) == _norm_series(right)
 
 
 def _issue_matches(left: str, right: str) -> bool:
     return _norm_issue(left) == _norm_issue(right)
 
 
+def _norm_series(value: str) -> str:
+    """Normalize series names for punctuation-insensitive equality."""
+    text = (value or "").strip().casefold()
+    text = re.sub(r"[^\w\s]+", " ", text, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _norm_text(value: str) -> str:
     return re.sub(r"\s+", " ", (value or "").strip().casefold())
+
+
+_DIR_YEAR = re.compile(r"\((?P<year>19\d{2}|20\d{2})\)")
+
+
+def _year_from_directory_name(name: str) -> str:
+    matches = list(_DIR_YEAR.finditer(name or ""))
+    if not matches:
+        return ""
+    return matches[-1].group("year")
 
 
 def _publication_year_hint(comic: Comic, parsed) -> str:
@@ -311,6 +329,15 @@ def _publication_year_hint(comic: Comic, parsed) -> str:
     volume = (comic.volume or "").strip()
     if re.fullmatch(r"(19|20)\d{2}", volume):
         return volume
+    raw_path = getattr(comic, "path", None)
+    if raw_path:
+        path = Path(raw_path) if not isinstance(raw_path, Path) else raw_path
+        for directory in (path.parent, path.parent.parent):
+            if directory == directory.parent:
+                continue
+            year = _year_from_directory_name(directory.name)
+            if year:
+                return year
     return ""
 
 

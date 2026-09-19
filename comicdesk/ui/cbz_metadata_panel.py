@@ -2,7 +2,8 @@
 from __future__ import annotations
 from pathlib import Path
 import logging
-from PySide6.QtCore import QCoreApplication, Qt, Signal
+from PySide6.QtCore import QCoreApplication, QSize, Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QTextEdit,
@@ -27,6 +29,14 @@ from comicdesk.services.comicinfo import FIELD_TAGS, join_web_links
 from comicdesk.services.identification import STATUS_CANDIDATES, STATUS_EMPTY
 from comicdesk.services.metadata_session import MetadataSession
 from comicdesk.ui.cbz_metadata_workers import MetadataSearchWorker, MetadataHydrateWorker, MetadataWriteWorker
+from comicdesk.ui.comicvine_candidate_widgets import (
+    CANDIDATE_ROW_HEIGHT,
+    COVER_HEIGHT,
+    COVER_WIDTH,
+    CandidateResultRow,
+    CoverLoader,
+    candidate_lines,
+)
 from comicdesk.ui.theme import (
     SPACING,
     button_stylesheet,
@@ -121,6 +131,7 @@ class CbzMetadataPanel(QWidget):
         self._changed_fields: set[str] = set()
         self._pre_apply_values: dict[str, object] = {}
         self._theme = "dark"
+        self._cover_loaders: list[CoverLoader] = []
         self._build_ui()
         if comic is not None:
             self.set_comic(comic)
@@ -212,13 +223,23 @@ class CbzMetadataPanel(QWidget):
         self.candidates_list = QListWidget()
         self.candidate_list = self.candidates_list
         self.candidates_list.setMinimumHeight(160)
+        self.candidates_list.setIconSize(QSize(COVER_WIDTH, COVER_HEIGHT))
         self.candidates_list.itemSelectionChanged.connect(self._candidate_selected)
         cv_layout.addWidget(self.candidates_list, 1)
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
         cv_layout.addWidget(self.status_label)
+        search_row = QHBoxLayout()
         self.search_button = self._button("1. Search", self.search)
         self.search_btn = self.search_button
+        self.search_progress = QProgressBar()
+        self.search_progress.setRange(0, 0)
+        self.search_progress.setFixedHeight(8)
+        self.search_progress.setTextVisible(False)
+        self.search_progress.hide()
+        search_row.addWidget(self.search_button)
+        search_row.addWidget(self.search_progress, 1)
+        cv_layout.addLayout(search_row)
         self.apply_button = self._button("2. Apply", self.apply_proposal)
         self.apply_btn = self.apply_button
         self.discard_button = self._button("Discard draft", self.discard)
@@ -227,7 +248,6 @@ class CbzMetadataPanel(QWidget):
         self.save_btn = self.save_button
         self.save_button.setProperty("primary", True)
         for button in (
-            self.search_button,
             self.apply_button,
             self.discard_button,
             self.save_button,
@@ -455,9 +475,12 @@ class CbzMetadataPanel(QWidget):
             self._last_dirty = dirty; self.dirty_changed.emit(dirty)
     def _set_action_state(self):
         has_comic = self.session is not None
-        busy = self._search_worker is not None or self._hydrate_worker is not None or self._write_worker is not None
+        searching = self._search_worker is not None
+        busy = searching or self._hydrate_worker is not None or self._write_worker is not None
+        self.search_progress.setVisible(searching)
         for widget in self.inputs.values(): widget.setEnabled(self._write_worker is None)
         self.search_button.setEnabled(has_comic and not busy)
+        self.candidates_list.setEnabled(not searching)
         self.apply_button.setEnabled(self._proposal is not None and not busy)
         dirty = bool(self.session and self.session.is_dirty)
         self.discard_button.setEnabled(has_comic and dirty and not busy); self.save_button.setEnabled(has_comic and dirty and not busy)
@@ -472,7 +495,9 @@ class CbzMetadataPanel(QWidget):
             return
         key = str(getattr(self.config, "api_key", "") or "").strip()
         self._request_token += 1; token, path = self._request_token, self._path_key
-        self._proposal = None; self._clear_candidates()
+        self._proposal = None
+        self._stop_cover_loaders()
+        self._clear_candidates()
         self._search_worker = MetadataSearchWorker(self.session.snapshot(), key, cache_enabled=bool(getattr(self.config, "cache_enabled", True)), token=token)
         worker = self._search_worker
         worker.finished.connect(lambda result, w=worker, t=token, p=path: self._search_finished(result, w, t, p))
@@ -500,20 +525,67 @@ class CbzMetadataPanel(QWidget):
         self._set_status(message)
         self._set_action_state()
     def _show_candidates(self, candidates):
+        self._stop_cover_loaders()
         self.candidates_list.clear()
-        for candidate in candidates:
-            item = QListWidgetItem(self._candidate_text(candidate)); item.setData(Qt.ItemDataRole.UserRole, candidate)
+        count = len(candidates)
+        if count:
+            self.proposals_label.setText(
+                f"Proposals — {count} result{'s' if count != 1 else ''}"
+            )
+        else:
+            self.proposals_label.setText("Proposals")
+        for row, candidate in enumerate(candidates):
+            headline, subtitle, detail = candidate_lines(candidate)
+            item = QListWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, candidate)
+            item.setSizeHint(QSize(0, CANDIDATE_ROW_HEIGHT))
+            row_widget = CandidateResultRow(headline, subtitle, detail, self._theme)
             self.candidates_list.addItem(item)
-        self.candidates_list.clearSelection(); self.candidates_list.setCurrentRow(-1)
-    @staticmethod
-    def _candidate_text(candidate):
-        name = getattr(candidate, "name", "") or getattr(candidate, "series_name", "")
-        number = getattr(candidate, "issue_number", ""); volume = getattr(candidate, "volume", "")
-        detail = f" #{number}" if number else ""
-        if volume: detail += f" · Vol. {volume}"
-        start_year = getattr(candidate, "start_year", "")
-        if start_year: detail += f" · {start_year}"
-        return f"{name}{detail}  [{getattr(candidate, 'id', '')}]".strip()
+            self.candidates_list.setItemWidget(item, row_widget)
+            image_url = getattr(candidate, "image_url", "") or ""
+            if image_url:
+                loader = CoverLoader(image_url, row)
+                loader.finished.connect(
+                    lambda data, r, w=loader: self._on_cover_loaded(data, r, w)
+                )
+                loader.error.connect(lambda r, w=loader: self._on_cover_error(r, w))
+                self._cover_loaders.append(loader)
+                loader.start()
+        self.candidates_list.clearSelection()
+        self.candidates_list.setCurrentRow(-1)
+
+    def _on_cover_loaded(self, data: bytes, row: int, worker: CoverLoader) -> None:
+        if worker in self._cover_loaders:
+            self._cover_loaders.remove(worker)
+        worker.deleteLater()
+        if row < 0 or row >= self.candidates_list.count():
+            return
+        item = self.candidates_list.item(row)
+        widget = self.candidates_list.itemWidget(item)
+        if not isinstance(widget, CandidateResultRow):
+            return
+        pixmap = QPixmap()
+        if pixmap.loadFromData(data):
+            widget.set_cover_pixmap(pixmap)
+
+    def _on_cover_error(self, row: int, worker: CoverLoader) -> None:
+        if worker in self._cover_loaders:
+            self._cover_loaders.remove(worker)
+        worker.deleteLater()
+        if row < 0 or row >= self.candidates_list.count():
+            return
+        item = self.candidates_list.item(row)
+        widget = self.candidates_list.itemWidget(item)
+        if isinstance(widget, CandidateResultRow):
+            widget.set_cover_failed()
+
+    def _stop_cover_loaders(self) -> None:
+        for loader in self._cover_loaders:
+            loader.cancel()
+            if loader.isRunning():
+                loader.wait(100)
+            loader.deleteLater()
+        self._cover_loaders.clear()
     def _candidate_selected(self):
         item = self.candidates_list.currentItem()
         candidate = item.data(Qt.ItemDataRole.UserRole) if item else None
@@ -637,7 +709,10 @@ class CbzMetadataPanel(QWidget):
         self._set_status(message); self._set_action_state()
     def _record_write_completion(self, worker, success, value):
         if worker is self._write_worker: self._write_completion = (success, value)
-    def _clear_candidates(self): self.candidates_list.clear()
+    def _clear_candidates(self):
+        self._stop_cover_loaders()
+        self.candidates_list.clear()
+        self.proposals_label.setText("Proposals")
     def _set_status(self, message): self.status_label.setText(message); self.status_message.emit(message)
     @staticmethod
     def _comic_path_key(comic):
@@ -675,6 +750,7 @@ class CbzMetadataPanel(QWidget):
         self._release_worker(worker)
 
     def shutdown_workers(self):
+        self._stop_cover_loaders()
         self._stop_search_worker()
         self._stop_hydrate_worker()
         self._wait_for_write()

@@ -30,6 +30,20 @@ def test_panel_populates_supported_fields_without_mutating_comic(qapp):
     panel.shutdown_workers()
 
 
+def test_show_candidates_uses_rich_row_widgets(qapp):
+    comic = Comic(Path("book.cbz"))
+    panel = CbzMetadataPanel(comic)
+    hit = ComicVineIssue(
+        "104054", "20570", "Fantastic Four: House of M", "2005", "1", "2020", "url",
+        name="A Doctor in the House",
+    )
+    panel._show_candidates([hit])
+    assert panel.candidates_list.count() == 1
+    assert panel.candidates_list.itemWidget(panel.candidates_list.item(0)) is not None
+    assert "1 result" in panel.proposals_label.text()
+    panel.shutdown_workers()
+
+
 def test_ambiguous_candidates_require_explicit_selection(qapp):
     comic = Comic(Path("book.cbz"))
     panel = CbzMetadataPanel(comic)

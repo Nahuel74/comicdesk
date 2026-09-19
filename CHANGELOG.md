@@ -4,6 +4,18 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-09-19
+
+### Changed
+
+- Metadata Comic Vine search shows an indeterminate progress bar, a result count, and cover thumbnails with structured lines for each candidate
+
+### Fixed
+
+- Comic Vine identification treats punctuation differences in series names as equivalent (e.g. local filenames vs Comic Vine titles with colons)
+- Volume lookup no longer runs issue lists on unrelated volumes when the series name does not match
+- Publication year hints can be taken from a parent folder name such as `(2005)` when the filename has no year
+
 ## [1.8.0] - 2026-09-18
 
 ### Added

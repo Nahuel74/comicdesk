@@ -118,6 +118,133 @@ def test_series_and_number_uses_volume_lookup_before_broad_search():
     assert not any(call[0] == "search_issue" for call in client.calls)
 
 
+def test_fantastic_four_house_of_m_matches_colon_volume_name():
+    path = Path(
+        "/comics/Fantastic Four - House of M (2005)/"
+        "Fantastic Four - House of M 01 (of 03) (Digital) (Zone-Empire).cbr"
+    )
+    ff_volume = SimpleNamespace(
+        id="20570", name="Fantastic Four: House of M", start_year="2005"
+    )
+    ff_issue = issue(
+        "104054",
+        series_id="20570",
+        series_name="Fantastic Four: House of M",
+        volume="2005",
+        number="1",
+        name="A Doctor in the House",
+        store_date="2005-08-01",
+    )
+    comic = Comic(path)
+
+    class VolumeClient(Client):
+        def get_issue(self, issue_id):
+            self.calls.append(("get_issue", issue_id))
+            if issue_id == "104054":
+                return ff_issue
+            return issue(issue_id, number="0")
+
+        def list_issues(self, series_id, issue_number):
+            self.calls.append(("list_issues", series_id, issue_number))
+            if series_id == "20570":
+                return [ff_issue]
+            return []
+
+    client = VolumeClient(volumes=[ff_volume], searched=[])
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue is not None
+    assert result.issue.id == "104054"
+    assert result.issue.name == "A Doctor in the House"
+    assert ("list_issues", "20570", "1") in client.calls
+    assert not any(call[0] == "search_issue" for call in client.calls)
+
+
+def test_issue_search_accepts_punctuation_mismatch_on_series():
+    found = issue(
+        "104054",
+        series_name="Fantastic Four: House of M",
+        number="1",
+        name="A Doctor in the House",
+    )
+    comic = Comic(
+        Path("local.cbr"),
+        series_name="Fantastic Four House of M",
+        issue_number="1",
+    )
+    client = Client(searched=[found])
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue is found
+
+
+def test_volume_lookup_does_not_list_issues_on_unmatched_volumes():
+    unrelated = SimpleNamespace(id="1", name="Fantastic Four", start_year="1961")
+    comic = Comic(Path("local.cbz"), series_name="Saga", issue_number="3")
+    client = Client(volumes=[unrelated], listed=[issue("9", series_name="Saga", number="3")])
+
+    result = identify_comic(comic, client)
+
+    assert not any(call[0] == "list_issues" for call in client.calls)
+
+
+def test_series_match_rejects_unrelated_similar_names():
+    from comicdesk.services.identification import _series_matches
+
+    assert not _series_matches("Batman", "Batman and Robin")
+    assert _series_matches("Fantastic Four House of M", "Fantastic Four: House of M")
+
+
+def test_parent_directory_year_disambiguates_fantastic_four_house_of_m():
+    path = Path(
+        "/comics/Fantastic Four - House of M (2005)/"
+        "Fantastic Four - House of M 01.cbr"
+    )
+    vol_2005 = SimpleNamespace(
+        id="20570", name="Fantastic Four: House of M", start_year="2005"
+    )
+    vol_1961 = SimpleNamespace(id="100", name="Fantastic Four", start_year="1961")
+    issue_2005 = issue(
+        "104054",
+        series_id="20570",
+        series_name="Fantastic Four: House of M",
+        number="1",
+        store_date="2005-08-01",
+    )
+    issue_1961 = issue(
+        "9999",
+        series_id="100",
+        series_name="Fantastic Four",
+        number="1",
+        store_date="1961-11-01",
+    )
+    comic = Comic(path)
+
+    class VolumeClient(Client):
+        def list_issues(self, series_id, issue_number):
+            self.calls.append(("list_issues", series_id, issue_number))
+            if series_id == "20570":
+                return [issue_2005]
+            if series_id == "100":
+                return [issue_1961]
+            return []
+
+        def get_issue(self, issue_id):
+            self.calls.append(("get_issue", issue_id))
+            if issue_id == "104054":
+                return issue_2005
+            return issue(issue_id)
+
+    client = VolumeClient(volumes=[vol_2005, vol_1961])
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue is issue_2005
+    assert not any(call == ("list_issues", "100", "1") for call in client.calls)
+
+
 def test_issue_search_does_not_return_other_numbers_when_filter_misses():
     noise = [
         issue("1", series_name="The Amazing Spider-Man", number="12"),
