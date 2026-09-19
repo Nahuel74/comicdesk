@@ -96,6 +96,16 @@ def test_rendered_stem_to_filename_preserves_spaces():
     assert rendered_stem_to_filename("Alpha - 1 (2020)") == "Alpha - 1 (2020)"
 
 
+def test_rendered_stem_preserves_series_colon_as_hyphen():
+    comic = Comic(
+        path=Path("/tmp/book.cbz"),
+        series_name="Fantastic Four: House of M",
+        issue_number="1",
+    )
+    stem = rendered_stem_to_filename(render_template("{Series}", comic))
+    assert stem == "Fantastic Four - House of M"
+
+
 def test_plan_marks_unchanged_and_ok(tmp_path):
     unchanged = tmp_path / "Alpha - 1 (2020).cbz"
     unchanged.touch()

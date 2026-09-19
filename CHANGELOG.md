@@ -4,6 +4,12 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-09-19
+
+### Fixed
+
+- Rename files replaces characters that are invalid in filenames with a spaced dash (` - `), with normalized single spaces, so metadata such as series titles with colons is preserved in the new name
+
 ## [1.8.1] - 2026-09-19
 
 ### Changed
