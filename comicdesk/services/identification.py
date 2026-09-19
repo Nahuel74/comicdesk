@@ -53,18 +53,18 @@ def identify_comic(comic: Comic, client, *, issues_only: bool = False) -> Identi
         listed = client.list_issues(comic.cv_series_id, issue_number)
         exact = _unique_issue_match(listed, series_name, issue_number)
         if exact:
-            hydrated = _hydrate_exact_issue(client, exact)
-            if hydrated is not None:
-                exact = hydrated
+            _enrich_issue_volume_from_comic(comic, exact)
             return IdentificationResult(STATUS_EXACT, issue=exact, issues=[exact])
         if listed:
             narrowed = _narrow_issues_by_year(listed, hint_year)
             if len(narrowed) == 1:
-                issue = _hydrate_exact_issue(client, narrowed[0]) or narrowed[0]
+                issue = narrowed[0]
+                _enrich_issue_volume_from_comic(comic, issue)
                 return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
             if narrowed:
                 return IdentificationResult(STATUS_CANDIDATES, issues=narrowed)
             return IdentificationResult(STATUS_CANDIDATES, issues=listed)
+        return IdentificationResult(STATUS_EMPTY)
 
     if series_name and issue_number:
         by_volume = _lookup_by_volume_and_issue(
@@ -631,10 +631,37 @@ def _hydrate_exact_issue(client, issue: ComicVineIssue):
     """
     if not getattr(issue, "id", None):
         return None
+    if not issue_needs_hydrate(issue):
+        return issue
     try:
         return client.get_issue(issue.id)
     except Exception:
         return None
+
+
+def issue_needs_hydrate(issue: ComicVineIssue) -> bool:
+    """Return True when a search/list hit still needs a get_issue round trip."""
+    if not getattr(issue, "id", None):
+        return False
+    if (getattr(issue, "description", "") or "").strip():
+        return False
+    if getattr(issue, "person_credits", None):
+        return False
+    return True
+
+
+def _enrich_issue_volume_from_comic(comic: Comic, issue: ComicVineIssue) -> None:
+    """Use local series/year metadata to avoid an extra volume API lookup."""
+    series_id = (comic.cv_series_id or "").strip()
+    if not series_id or str(issue.series_id or "").strip() != series_id:
+        return
+    year = (comic.volume or "").strip()
+    if not re.fullmatch(r"(19|20)\d{2}", year):
+        return
+    if not (issue.volume_start_year or "").strip():
+        issue.volume_start_year = year
+    if not re.fullmatch(r"(19|20)\d{2}", (issue.volume or "").strip()):
+        issue.volume = year
 
 
 def _strip_html(text: str) -> str:

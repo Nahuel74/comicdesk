@@ -63,6 +63,7 @@ def test_issue_id_is_an_exact_match_and_identification_is_read_only():
 
 def test_series_id_and_number_use_scoped_issue_lookup():
     found = issue("11", series_id="55", number="03")
+    found.description = "Complete from list_issues"
     comic = Comic(Path("local.cbz"), cv_series_id="55", issue_number="3")
     client = Client(listed=[found])
 
@@ -70,7 +71,20 @@ def test_series_id_and_number_use_scoped_issue_lookup():
 
     assert result.status == STATUS_EXACT
     assert result.issue is found
-    assert client.calls[0] == ("list_issues", "55", "3")
+    assert client.calls == [("list_issues", "55", "3")]
+
+
+def test_scoped_exact_match_skips_get_issue_even_without_description():
+    found = issue("11", series_id="55", number="03")
+    found.person_credits = [{"name": "Claremont", "role": "writer"}]
+    comic = Comic(Path("local.cbz"), cv_series_id="55", issue_number="3", volume="1981")
+    client = Client(listed=[found])
+
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue.volume_start_year == "1981"
+    assert not any(call[0] == "get_issue" for call in client.calls)
 
 
 def test_ambiguous_scoped_results_are_candidates_not_first_result():
@@ -84,6 +98,23 @@ def test_ambiguous_scoped_results_are_candidates_not_first_result():
     assert result.issue is None
     assert result.issues == [first, second]
     assert result.candidates == [first, second]
+
+
+def test_scoped_empty_list_returns_empty_without_broad_search():
+    comic = Comic(
+        Path("wrong-series-name.cbz"),
+        cv_series_id="55",
+        issue_number="3",
+        series_name="Wrong Name",
+    )
+    client = Client(listed=[], searched=[issue("99", series_name="Wrong Name", number="3")])
+
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EMPTY
+    assert client.calls == [("list_issues", "55", "3")]
+    assert not any(call[0] == "search_issue" for call in client.calls)
+    assert not any(call[0] == "search_volume" for call in client.calls)
 
 
 def test_series_and_number_uses_volume_lookup_before_broad_search():

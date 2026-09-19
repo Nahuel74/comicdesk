@@ -12,6 +12,7 @@ class MetadataInstanceModel(QAbstractTableModel):
         super().__init__(parent)
         self._comics: list[Comic] = []
         self._filter = ""
+        self._editing_path = ""
 
     def set_comics(self, comics: list[Comic]) -> None:
         self.beginResetModel()
@@ -22,6 +23,18 @@ class MetadataInstanceModel(QAbstractTableModel):
         self._filter = (text or "").strip().lower()
         self.beginResetModel()
         self.endResetModel()
+
+    def set_editing_path(self, path: str) -> None:
+        """Highlight the row whose file is shown in the metadata editor."""
+        new_path = path or ""
+        if new_path == self._editing_path:
+            return
+        self._editing_path = new_path
+        if self.rowCount() <= 0:
+            return
+        top = self.index(0, 0)
+        bottom = self.index(self.rowCount() - 1, 0)
+        self.dataChanged.emit(top, bottom, [Qt.ItemDataRole.DisplayRole])
 
     def comic_at(self, row: int) -> Comic | None:
         visible = self._visible_rows()
@@ -37,6 +50,18 @@ class MetadataInstanceModel(QAbstractTableModel):
             if str(item.path) == key:
                 return index
         return -1
+
+    def notify_comic_changed(self, comic: Comic) -> None:
+        row = self.row_for_comic(comic)
+        if row < 0:
+            return
+        top_left = self.index(row, 0)
+        bottom_right = self.index(row, self.columnCount() - 1)
+        self.dataChanged.emit(
+            top_left,
+            bottom_right,
+            [Qt.ItemDataRole.DisplayRole],
+        )
 
     def _visible_rows(self) -> list[Comic]:
         if not self._filter:
@@ -79,7 +104,10 @@ class MetadataInstanceModel(QAbstractTableModel):
         column = index.column()
         if role == Qt.ItemDataRole.DisplayRole:
             if column == 0:
-                return comic.path.name
+                name = comic.path.name
+                if self._editing_path and str(comic.path) == self._editing_path:
+                    return f"▸ {name}"
+                return name
             if column == 1:
                 return comic.series_name or comic.title or "—"
             if column == 2:

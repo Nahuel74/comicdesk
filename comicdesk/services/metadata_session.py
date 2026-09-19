@@ -15,6 +15,7 @@ from comicdesk.services.identification import apply_issue_to_comic, apply_volume
 
 EDITABLE_FIELDS = tuple(field_name for _, field_name in FIELD_TAGS)
 IDENTIFIER_FIELDS = ("cv_series_id", "cv_issue_id")
+BATCH_SERIES_FIELDS = ("cv_series_id", "series_name", "volume", "publisher")
 
 
 class MetadataSession:
@@ -107,6 +108,11 @@ class MetadataSession:
         return {name: deepcopy(getattr(self.draft, name, "")) for name in names}
 
     apply_candidate = apply_proposal
+
+    def apply_fields(self, fields: dict[str, Any]) -> None:
+        """Set multiple editable fields on the draft."""
+        for name, value in fields.items():
+            self.set_field(name, value)
 
 
 def _same_comic(left: Comic, right: Comic) -> bool:

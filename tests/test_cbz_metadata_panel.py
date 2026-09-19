@@ -6,7 +6,8 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QItemSelectionModel
+from PySide6.QtWidgets import QApplication, QMessageBox, QTableView
 
 from comicdesk.models import Comic, ComicVineIssue, ComicVineVolume
 from comicdesk.ui.cbz_metadata_panel import CbzMetadataPanel, CHANGED_PROPERTY
@@ -69,6 +70,218 @@ def test_panel_selector_switches_between_available_comics(qapp):
 
     assert panel.comic is second
     assert panel.session.draft.title == "Two"
+    panel.shutdown_workers()
+
+
+def test_instance_table_uses_extended_selection(qapp):
+    panel = CbzMetadataPanel(Comic(Path("book.cbz")))
+    assert panel.instance_table.selectionMode() == QTableView.SelectionMode.ExtendedSelection
+    panel.shutdown_workers()
+
+
+def test_search_disabled_with_multiple_selection(qapp):
+    first = Comic(Path("one.cbz"))
+    second = Comic(Path("two.cbz"))
+    panel = CbzMetadataPanel(first)
+    panel.set_comics([first, second])
+    sm = panel.instance_table.selectionModel()
+    sm.select(
+        panel.instance_model.index(0, 0),
+        QItemSelectionModel.SelectionFlag.ClearAndSelect
+        | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    sm.select(
+        panel.instance_model.index(1, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    assert len(panel._selected_comics()) == 2
+    assert panel.search_button.isEnabled() is False
+    panel.shutdown_workers()
+
+
+def test_batch_apply_updates_selected_drafts(qapp, monkeypatch, tmp_path):
+    comics = [
+        Comic(tmp_path / "one.cbz", series_name="A"),
+        Comic(tmp_path / "two.cbz", series_name="B"),
+        Comic(tmp_path / "three.cbz", series_name="C"),
+    ]
+    for comic in comics:
+        comic.path.write_bytes(b"")
+    panel = CbzMetadataPanel(comics[0])
+    panel.set_comics(comics)
+    panel.batch_inputs["cv_series_id"].setText("100")
+    panel.batch_inputs["series_name"].setText("Batch Series")
+    panel.batch_inputs["volume"].setText("2010")
+    sm = panel.instance_table.selectionModel()
+    for row in range(3):
+        flags = QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
+        if row == 0:
+            flags |= QItemSelectionModel.SelectionFlag.ClearAndSelect
+        sm.select(panel.instance_model.index(row, 0), flags)
+    save_started: list[int] = []
+
+    def capture_start(self):
+        save_started.append(len(self._write_queue))
+        return False
+
+    monkeypatch.setattr(CbzMetadataPanel, "_start_next_write", capture_start)
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+    panel.apply_batch_to_selected()
+    assert save_started == [3]
+    for comic in comics:
+        session = panel._session_for_comic(comic)
+        assert session.draft.cv_series_id == "100"
+        assert session.draft.series_name == "Batch Series"
+        assert session.draft.volume == "2010"
+    panel.shutdown_workers()
+
+
+def test_batch_apply_disabled_for_single_selection(qapp):
+    comic = Comic(Path("one.cbz"))
+    panel = CbzMetadataPanel(comic)
+    panel.set_comics([comic])
+    panel.batch_inputs["cv_series_id"].setText("100")
+    assert panel.apply_to_selected_button.isEnabled() is False
+    panel.shutdown_workers()
+
+
+def test_single_selection_shows_per_issue_editor(qapp):
+    comic = Comic(Path("one.cbz"))
+    panel = CbzMetadataPanel(comic)
+    assert panel.editor_stack.currentWidget() is panel.single_editor_page
+    panel.shutdown_workers()
+
+
+def test_batch_apply_skipped_when_no_field_changes(qapp, monkeypatch):
+    first = Comic(Path("one.cbz"), series_name="Same", cv_series_id="1")
+    second = Comic(Path("two.cbz"), series_name="Same", cv_series_id="1")
+    panel = CbzMetadataPanel(first)
+    panel.set_comics([first, second])
+    panel.batch_inputs["cv_series_id"].setText("1")
+    panel.batch_inputs["series_name"].setText("Same")
+    sm = panel.instance_table.selectionModel()
+    sm.select(
+        panel.instance_model.index(0, 0),
+        QItemSelectionModel.SelectionFlag.ClearAndSelect
+        | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    sm.select(
+        panel.instance_model.index(1, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    save_started: list[int] = []
+    monkeypatch.setattr(
+        CbzMetadataPanel,
+        "_start_next_write",
+        lambda self: save_started.append(len(self._write_queue)) or False,
+    )
+    panel.apply_batch_to_selected()
+    assert save_started == []
+    panel.shutdown_workers()
+
+
+def test_multi_select_disables_per_issue_form(qapp):
+    first = Comic(Path("one.cbz"))
+    second = Comic(Path("two.cbz"))
+    panel = CbzMetadataPanel(first)
+    panel.set_comics([first, second])
+    sm = panel.instance_table.selectionModel()
+    sm.select(
+        panel.instance_model.index(0, 0),
+        QItemSelectionModel.SelectionFlag.ClearAndSelect
+        | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    sm.select(
+        panel.instance_model.index(1, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    assert panel.inputs["title"].isEnabled() is False
+    assert panel.batch_inputs["cv_series_id"].isEnabled() is True
+    assert panel.editor_stack.currentWidget() is panel.batch_editor_page
+    panel.show()
+    assert panel.cv_panel.isHidden() is True
+    panel.shutdown_workers()
+
+
+def test_single_selection_shows_comicvine_panel(qapp):
+    first = Comic(Path("one.cbz"))
+    second = Comic(Path("two.cbz"))
+    panel = CbzMetadataPanel(first)
+    panel.set_comics([first, second])
+    panel.show()
+    assert panel.cv_panel.isHidden() is False
+    panel.shutdown_workers()
+
+
+def test_working_set_context_shows_selection_and_editing(qapp):
+    first = Comic(Path("alpha.cbz"), title="Alpha")
+    second = Comic(Path("beta.cbz"), title="Beta")
+    panel = CbzMetadataPanel(first)
+    panel.set_comics([first, second])
+    sm = panel.instance_table.selectionModel()
+    sm.select(
+        panel.instance_model.index(0, 0),
+        QItemSelectionModel.SelectionFlag.ClearAndSelect
+        | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    sm.select(
+        panel.instance_model.index(1, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    text = panel.working_set_context_label.text()
+    assert "2 files selected" in text
+    assert "Editing: alpha.cbz" in text
+    assert "Comic Vine search: one file only" in text
+    panel.shutdown_workers()
+
+
+def test_batch_selection_list_shows_selected_files(qapp):
+    first = Comic(Path("alpha.cbz"), series_name="Alpha", issue_number="1")
+    second = Comic(Path("beta.cbz"), series_name="Beta", issue_number="2")
+    panel = CbzMetadataPanel(first)
+    panel.set_comics([first, second])
+    sm = panel.instance_table.selectionModel()
+    sm.select(
+        panel.instance_model.index(0, 0),
+        QItemSelectionModel.SelectionFlag.ClearAndSelect
+        | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    sm.select(
+        panel.instance_model.index(1, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    assert panel.batch_selection_list.count() == 2
+    assert "alpha.cbz" in panel.batch_selection_list.item(0).text()
+    assert "Selected files (2)" in panel.batch_files_group.title()
+    panel.shutdown_workers()
+
+
+def test_editing_row_marker_in_table(qapp):
+    comic = Comic(Path("marked.cbz"))
+    panel = CbzMetadataPanel(comic)
+    panel.set_comics([comic])
+    index = panel.instance_model.index(0, 0)
+    assert panel.instance_model.data(index) == "▸ marked.cbz"
+    panel.shutdown_workers()
+
+
+def test_filtered_table_row_switches_active_comic(qapp):
+    first = Comic(Path("alpha.cbz"), title="Alpha")
+    second = Comic(Path("beta.cbz"), title="Beta")
+    panel = CbzMetadataPanel(first)
+    panel.set_comics([first, second])
+    panel.instance_filter.setText("beta")
+    row = panel.instance_model.row_for_comic(second)
+    panel.instance_table.selectionModel().setCurrentIndex(
+        panel.instance_model.index(row, 0),
+        QItemSelectionModel.SelectionFlag.ClearAndSelect
+        | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    assert panel.comic is second
     panel.shutdown_workers()
 
 

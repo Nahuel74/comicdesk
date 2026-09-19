@@ -4,6 +4,18 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.8.4] - 2026-09-19
+
+### Added
+
+- Metadata working set: taller file list, multi-select, and batch shared-series save for Comic Vine series ID, series name, publication year, and publisher
+- Comic Vine search in Metadata is available only when a single working-set row is selected; with a pinned series ID, search uses scoped issue lookup without broad filename fallback
+
+### Changed
+
+- Metadata Comic Vine search with a pinned series ID uses a single scoped `issues/` request (no redundant `get_issue` / volume round trips when list results are already complete); repeat searches hit the API cache for near-instant results
+- Metadata batch workflow: multi-select replaces the per-issue editor with a compact shared-series form and hides the Comic Vine panel; **Save to N selected** confirms then writes archives immediately
+
 ## [1.8.3] - 2026-09-19
 
 ### Fixed

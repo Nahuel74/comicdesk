@@ -55,3 +55,23 @@ def test_volume_proposal_sets_series_without_inventing_issue_id():
     assert session.draft.volume == "2012"
     assert session.draft.year == ""
     assert session.draft.cv_issue_id is None
+
+
+def test_apply_fields_sets_multiple_values_on_draft():
+    comic = Comic(Path("book.cbz"), series_name="Old", publisher="")
+    session = MetadataSession(comic)
+
+    session.apply_fields(
+        {
+            "cv_series_id": "42",
+            "series_name": "Saga",
+            "volume": "2012",
+            "publisher": "Image",
+        }
+    )
+
+    assert session.draft.cv_series_id == "42"
+    assert session.draft.series_name == "Saga"
+    assert session.draft.volume == "2012"
+    assert session.draft.publisher == "Image"
+    assert comic.cv_series_id is None

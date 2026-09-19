@@ -5,6 +5,7 @@ import time
 import json
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -157,6 +158,7 @@ class ComicVineClient:
         self.cache_enabled = cache_enabled
         self._last_request_time = 0.0
         self._cache: dict[str, dict] = {}
+        self._volume_cache: dict[str, ComicVineVolume] = {}
         self._cookies: dict[str, str] = {}
         
         if cache_enabled:
@@ -314,7 +316,10 @@ class ComicVineClient:
         # Comic Vine's issue payload identifies the parent volume but does not
         # reliably include its start year. Resolve it explicitly so the local
         # Comic.volume is the real volume year, never the volume's database ID.
-        if issue.series_id:
+        start_year = (issue.volume_start_year or "").strip()
+        if re.fullmatch(r"(19|20)\d{2}", start_year):
+            issue.volume = start_year
+        elif issue.series_id:
             try:
                 volume = self.get_volume(issue.series_id)
                 issue.volume = volume.start_year
@@ -326,12 +331,18 @@ class ComicVineClient:
                 logger.warning("comicvine_volume_lookup_failed series_id=%s", issue.series_id)
         return issue
 
-    def get_volume(self, volume_id: str) -> dict:
+    def get_volume(self, volume_id: str) -> ComicVineVolume:
         """Get volume details by ID."""
+        volume_id = str(volume_id or "").strip()
+        cached = self._volume_cache.get(volume_id)
+        if cached is not None:
+            return cached
         data = self._request(f"volume/4050-{volume_id}", {
             "field_list": VOLUME_FIELDS
         })
-        return _parse_volume_response(data.get("results") or {})
+        volume = _parse_volume_response(data.get("results") or {})
+        self._volume_cache[volume_id] = volume
+        return volume
 
     def search_issue(self, query: str) -> list[ComicVineIssue]:
         """Search for issues by name."""
