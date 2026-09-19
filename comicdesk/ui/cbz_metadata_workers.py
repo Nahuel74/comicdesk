@@ -60,7 +60,7 @@ class MetadataSearchWorker(QThread):
                 self.api_key,
                 cache_enabled=self.cache_enabled and not self.force_refresh,
             )
-            result = identify_comic(self.comic, client)
+            result = identify_comic(self.comic, client, issues_only=True)
             if not self._cancelled:
                 self.finished.emit(result)
         except Exception as exc:  # workers must report recoverable failures

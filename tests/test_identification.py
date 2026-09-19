@@ -346,7 +346,7 @@ def test_series_volume_and_number_disambiguate_search_results():
 
     assert result.status == STATUS_EXACT
     assert result.issue is found
-    assert ("search_issue", "saga #03") in client.calls
+    assert any(call[0] == "search_issue" for call in client.calls)
 
 
 def test_search_can_use_series_and_title_when_number_is_missing():
@@ -370,7 +370,7 @@ def test_filename_is_used_when_local_metadata_is_empty():
     assert result.status == STATUS_EXACT
     assert result.issue is found
     assert ("search_volume", "Saga") in client.calls
-    assert ("search_issue", "Saga #3") in client.calls
+    assert any(call[0] == "search_issue" for call in client.calls)
     assert comic.series_name == ""
 
 

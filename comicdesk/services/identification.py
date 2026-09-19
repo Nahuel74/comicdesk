@@ -16,6 +16,8 @@ STATUS_EXACT = "exact"
 STATUS_CANDIDATES = "candidates"
 STATUS_EMPTY = "empty"
 
+_MAX_VOLUME_ISSUE_LOOKUPS = 3
+
 
 @dataclass
 class IdentificationResult:
@@ -36,7 +38,7 @@ class IdentificationResult:
         return self.issues or self.volumes
 
 
-def identify_comic(comic: Comic, client) -> IdentificationResult:
+def identify_comic(comic: Comic, client, *, issues_only: bool = False) -> IdentificationResult:
     """Identify a comic without mutating it or auto-picking ambiguous hits."""
     parsed = parse_comic_filename(comic.path)
     hint_year = _publication_year_hint(comic, parsed)
@@ -75,6 +77,10 @@ def identify_comic(comic: Comic, client) -> IdentificationResult:
     queries = []
     if series_name and issue_number:
         queries.append((f"{series_name} #{issue_number}", series_name, issue_number))
+        queries.append((f"{series_name} {issue_number}", series_name, issue_number))
+        if not (series_name or "").strip().casefold().startswith(("the ", "a ", "an ")):
+            prefixed = f"The {series_name.strip()} {issue_number}"
+            queries.append((prefixed, series_name, issue_number))
     if series_name and title and not issue_number:
         queries.append((f"{series_name} {title}", series_name, ""))
 
@@ -113,7 +119,7 @@ def identify_comic(comic: Comic, client) -> IdentificationResult:
         if result.status != STATUS_EMPTY:
             return result
 
-    if inferred_series:
+    if inferred_series and not issues_only:
         volumes = client.search_volume(inferred_series)
         if volumes and hint_year:
             by_year = [
@@ -228,40 +234,219 @@ def _from_issue_search(
     return IdentificationResult(STATUS_EMPTY)
 
 
-def _lookup_by_volume_and_issue(
+def _series_name_search_variants(series_name: str) -> list[str]:
+    name = (series_name or "").strip()
+    if not name:
+        return []
+    variants = [name]
+    parts = name.split()
+    if len(parts) >= 3 and parts[1].casefold() == "x":
+        hyphenated = f"{parts[0]} X-{' '.join(parts[2:])}"
+        if hyphenated not in variants:
+            variants.append(hyphenated)
+    return variants
+
+
+def _volume_search_queries(series_name: str, hint_year: str = "") -> list[str]:
+    queries: list[str] = []
+    for name in _series_name_search_variants(series_name):
+        queries.append(name)
+        lowered = name.casefold()
+        if not lowered.startswith(("the ", "a ", "an ")):
+            queries.append(f"The {name}")
+        if hint_year:
+            queries.append(f"{name} {hint_year}")
+            try:
+                queries.append(f"{name} {int(hint_year) - 1}")
+            except ValueError:
+                pass
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for query in queries:
+        if query in seen:
+            continue
+        seen.add(query)
+        ordered.append(query)
+    return ordered
+
+
+def _volume_filter_years(hint_year: str) -> list[str]:
+    years = []
+    if hint_year:
+        years.append(hint_year)
+        try:
+            years.append(str(int(hint_year) - 1))
+        except ValueError:
+            pass
+    return years
+
+
+def _exact_series_volume_names(series_name: str) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for name in _series_name_search_variants(series_name):
+        candidates = [name]
+        if not name.casefold().startswith(("the ", "a ", "an ")):
+            candidates.append(f"The {name}")
+        for candidate in candidates:
+            key = candidate.strip().casefold()
+            if key and key not in seen:
+                seen.add(key)
+                names.append(candidate)
+    return names
+
+
+def _is_main_series_volume(volume_name: str, series_name: str) -> bool:
+    return _series_matches(volume_name, series_name)
+
+
+def _volume_lookup_rank(volume, hint_year: str) -> tuple[int, str]:
+    start = _volume_start_year(volume)
+    if hint_year and _volume_matches_year_hint(start, hint_year):
+        return (0, start)
+    if hint_year and start:
+        try:
+            gap = int(hint_year) - int(start)
+            if 0 <= gap <= 25:
+                return (1, start)
+        except ValueError:
+            pass
+    return (2, start)
+
+
+def _collect_volume_candidates(client, series_name: str, hint_year: str = "") -> list:
+    seen_ids: set[str] = set()
+    candidates: list = []
+
+    def add(volume) -> None:
+        volume_id = str(getattr(volume, "id", "") or "")
+        if not volume_id or volume_id in seen_ids:
+            return
+        if not _is_main_series_volume(volume.name, series_name):
+            return
+        seen_ids.add(volume_id)
+        candidates.append(volume)
+
+    filter_fn = getattr(client, "filter_volumes", None)
+    if callable(filter_fn):
+        for volume_name in _exact_series_volume_names(series_name):
+            try:
+                for volume in filter_fn(name=volume_name):
+                    add(volume)
+            except Exception:
+                continue
+
+    for query in _volume_search_queries(series_name, hint_year):
+        try:
+            for volume in client.search_volume(query):
+                add(volume)
+        except Exception:
+            continue
+
+    candidates.sort(key=lambda volume: _volume_lookup_rank(volume, hint_year))
+    return candidates[:_MAX_VOLUME_ISSUE_LOOKUPS]
+
+
+def _search_matched_volumes(client, series_name: str, hint_year: str = "") -> list:
+    return _collect_volume_candidates(client, series_name, hint_year)
+
+
+def _series_issue_search_queries(series_name: str, issue_number: str) -> list[str]:
+    queries: list[str] = []
+    seen: set[str] = set()
+    for name in _series_name_search_variants(series_name):
+        for candidate in (f"{name} {issue_number}", f"{name} #{issue_number}"):
+            if not name.casefold().startswith(("the ", "a ", "an ")):
+                candidate_the = f"The {name} {issue_number}"
+                if candidate_the not in seen:
+                    seen.add(candidate_the)
+                    queries.append(candidate_the)
+            if candidate not in seen:
+                seen.add(candidate)
+                queries.append(candidate)
+    return queries
+
+
+def _lookup_by_issue_number_filter(
     client, series_name: str, issue_number: str, hint_year: str = ""
 ) -> IdentificationResult:
-    """Resolve an issue by series name and number via volume search + issue filter."""
-    try:
-        volumes = client.search_volume(series_name)
-    except Exception:
-        volumes = []
-    matched_volumes = [volume for volume in volumes if _series_matches(volume.name, series_name)]
-    if not matched_volumes:
-        return IdentificationResult(STATUS_EMPTY)
-    if hint_year and matched_volumes:
-        by_year = [
-            volume
-            for volume in matched_volumes
-            if _volume_matches_year_hint(_volume_start_year(volume), hint_year)
+    matches: list[ComicVineIssue] = []
+    search_issue = getattr(client, "search_issue", None)
+    if callable(search_issue):
+        for query in _series_issue_search_queries(series_name, issue_number):
+            try:
+                listed = search_issue(query)
+            except Exception:
+                continue
+            for item in listed:
+                if not _series_matches(item.series_name, series_name):
+                    continue
+                if not _issue_matches(item.issue_number, issue_number):
+                    continue
+                matches.append(item)
+            if matches:
+                break
+
+    search = getattr(client, "search_issues_by_number", None)
+    if not matches and callable(search):
+        try:
+            listed = search(issue_number)
+        except Exception:
+            listed = []
+        matches = [
+            item
+            for item in listed
+            if _series_matches(item.series_name, series_name)
+            and _issue_matches(item.issue_number, issue_number)
         ]
-        if by_year:
-            matched_volumes = by_year
+    if not matches:
+        return IdentificationResult(STATUS_EMPTY)
+    if len(matches) > 1 and hint_year:
+        narrowed = _narrow_issues_by_year(matches, hint_year)
+        if len(narrowed) == 1:
+            exact = _hydrate_exact_issue(client, narrowed[0]) or narrowed[0]
+            return IdentificationResult(STATUS_EXACT, issue=exact, issues=[exact])
+        if narrowed:
+            matches = narrowed
+    if len(matches) == 1:
+        exact = _hydrate_exact_issue(client, matches[0]) or matches[0]
+        return IdentificationResult(STATUS_EXACT, issue=exact, issues=[matches])
+    return IdentificationResult(STATUS_CANDIDATES, issues=matches)
+
+
+def _issues_from_matched_volumes(
+    client,
+    matched_volumes: list,
+    series_name: str,
+    issue_number: str,
+    hint_year: str,
+) -> IdentificationResult:
     issues: list[ComicVineIssue] = []
     seen_ids: set[str] = set()
-    for volume in matched_volumes[:SEARCH_RESULT_LIMIT]:
+    for volume in matched_volumes[:_MAX_VOLUME_ISSUE_LOOKUPS]:
         try:
             listed = client.list_issues(volume.id, issue_number)
         except Exception:
             continue
+        volume_issues: list[ComicVineIssue] = []
         for candidate in listed:
             if not _issue_matches(candidate.issue_number, issue_number):
+                continue
+            if not _series_matches(candidate.series_name, series_name):
                 continue
             if candidate.id in seen_ids:
                 continue
             seen_ids.add(candidate.id)
             hydrated = _hydrate_exact_issue(client, candidate) or candidate
-            issues.append(hydrated)
+            volume_issues.append(hydrated)
+        if not volume_issues:
+            continue
+        issues.extend(volume_issues)
+        if len(volume_issues) == 1:
+            issue = volume_issues[0]
+            if not hint_year or _issue_matches_year_hint(issue, hint_year):
+                return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
+        break
     if len(issues) > 1 and hint_year:
         narrowed = _narrow_issues_by_year(issues, hint_year)
         if len(narrowed) == 1:
@@ -273,6 +458,23 @@ def _lookup_by_volume_and_issue(
     if issues:
         return IdentificationResult(STATUS_CANDIDATES, issues=issues)
     return IdentificationResult(STATUS_EMPTY)
+
+
+def _lookup_by_volume_and_issue(
+    client, series_name: str, issue_number: str, hint_year: str = ""
+) -> IdentificationResult:
+    """Resolve an issue by series name and number via volume search + issue filter."""
+    matched_volumes = _search_matched_volumes(client, series_name, hint_year)
+    if matched_volumes:
+        by_volume = _issues_from_matched_volumes(
+            client, matched_volumes, series_name, issue_number, hint_year
+        )
+        if by_volume.status != STATUS_EMPTY:
+            return by_volume
+
+    return _lookup_by_issue_number_filter(
+        client, series_name, issue_number, hint_year
+    )
 
 
 def _unique_issue_match(
@@ -292,8 +494,16 @@ def _unique_issue_match(
     return None
 
 
+_LEADING_ARTICLE = re.compile(r"^(?:the|a|an)\s+")
+
+
+def _norm_series_key(value: str) -> str:
+    text = _norm_series(value)
+    return _LEADING_ARTICLE.sub("", text).strip()
+
+
 def _series_matches(left: str, right: str) -> bool:
-    return _norm_series(left) == _norm_series(right)
+    return _norm_series_key(left) == _norm_series_key(right)
 
 
 def _issue_matches(left: str, right: str) -> bool:

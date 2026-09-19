@@ -210,9 +210,6 @@ class AddReadingListIssueDialog(QDialog):
         candidates: list = list(getattr(result, "issues", []) or [])
         if not candidates and getattr(result, "issue", None) is not None:
             candidates = [result.issue]
-        if not candidates:
-            volumes = list(getattr(result, "volumes", []) or [])
-            candidates = volumes
         self.results_list.clear()
         for row, candidate in enumerate(candidates):
             headline, subtitle, detail = candidate_lines(candidate)

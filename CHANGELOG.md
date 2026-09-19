@@ -4,6 +4,17 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+### Fixed
+
+- Metadata Comic Vine search matches series when Comic Vine uses a leading “The” (e.g. Uncanny X-Men #451 from filename metadata)
+- Metadata search resolves long-running series (e.g. Uncanny X-Men #457) via volume lookup with cover-date year hints and issue-number search fallbacks
+- Settings dialog no longer crashes when resolving the system theme
+- Comic Vine client retries on HTTP 420, skips caching empty search results, and uses name-only volume filters with client-side start-year matching
+
+### Changed
+
+- Metadata and Lists “add issue” Comic Vine search show issue proposals only, not volume/series-only rows
+
 ## [1.8.2] - 2026-09-19
 
 ### Fixed

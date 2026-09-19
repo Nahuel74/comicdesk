@@ -109,6 +109,15 @@ def _names(values) -> list[str]:
             if isinstance(item, dict) and item.get("name")]
 
 
+def _norm_issue_number(value: str) -> str:
+    text = (value or "").strip().lstrip("#").casefold()
+    if not text:
+        return ""
+    if text.isdigit():
+        return str(int(text))
+    return text
+
+
 def _response_json(response: httpx.Response) -> dict:
     """Parse a Comic Vine JSON body, including gzip when httpx did not decode it."""
     try:
@@ -183,6 +192,13 @@ class ComicVineClient:
             if tmp_path is not None:
                 tmp_path.unlink(missing_ok=True)
 
+    @staticmethod
+    def _should_cache_response(endpoint: str, data: dict) -> bool:
+        results = data.get("results")
+        if endpoint in ("search", "issues/", "volumes/") and isinstance(results, list) and not results:
+            return False
+        return True
+
     def _rate_limit(self) -> None:
         """Enforce rate limiting (1 request per second)."""
         elapsed = time.time() - self._last_request_time
@@ -190,13 +206,18 @@ class ComicVineClient:
             time.sleep(1.0 - elapsed)
         self._last_request_time = time.time()
 
-    def _request(self, endpoint: str, params: dict) -> dict:
+    def _request(self, endpoint: str, params: dict, *, _attempt: int = 0) -> dict:
         """Make API request with rate limiting and caching."""
         cache_key = f"{endpoint}:{json.dumps(params, sort_keys=True)}"
         
         if self.cache_enabled and cache_key in self._cache:
-            logger.debug("comicvine_request cache_hit endpoint=%s", endpoint)
-            return self._cache[cache_key]
+            cached = self._cache[cache_key]
+            results = cached.get("results") if isinstance(cached, dict) else None
+            if endpoint in ("search", "issues/", "volumes/") and isinstance(results, list) and not results:
+                pass
+            else:
+                logger.debug("comicvine_request cache_hit endpoint=%s", endpoint)
+                return cached
         
         self._rate_limit()
         started = time.monotonic()
@@ -242,6 +263,16 @@ class ComicVineClient:
         except httpx.HTTPStatusError as e:
             logger.warning("comicvine_request_http_error endpoint=%s status_code=%s",
                            endpoint, e.response.status_code)
+            if e.response.status_code == 420 and _attempt < 3:
+                delay = 2.0 * (2 ** _attempt)
+                logger.info(
+                    "comicvine_rate_limit_retry endpoint=%s attempt=%s delay_s=%s",
+                    endpoint,
+                    _attempt + 1,
+                    delay,
+                )
+                time.sleep(delay)
+                return self._request(endpoint, params, _attempt=_attempt + 1)
             if e.response.status_code == 420:
                 raise RateLimitError("Rate limit exceeded")
             raise ComicVineError(f"HTTP error: {e.response.status_code}")
@@ -264,7 +295,7 @@ class ComicVineClient:
         elif status_code != 1:
             raise ComicVineError(f"API error: {data.get('error', 'Unknown')}")
         
-        if self.cache_enabled:
+        if self.cache_enabled and self._should_cache_response(endpoint, data):
             self._cache[cache_key] = data
             self._save_cache()
 
@@ -325,6 +356,60 @@ class ComicVineClient:
         if not isinstance(results, list):
             raise ComicVineError("Comic Vine returned invalid volume results")
         return [_parse_volume_response(r) for r in results]
+
+    def filter_volumes(
+        self, *, name: str = "", start_year: str = ""
+    ) -> list[ComicVineVolume]:
+        """List volumes using Comic Vine filter (more precise than ranked search)."""
+        # Comic Vine treats comma-separated filters loosely; apply start_year locally.
+        if (name or "").strip():
+            filter_value = f"name:{name.strip()}"
+        elif (start_year or "").strip():
+            filter_value = f"start_year:{start_year.strip()}"
+        else:
+            return []
+        data = self._request("volumes/", {
+            "filter": filter_value,
+            "field_list": VOLUME_FIELDS,
+            "limit": 100,
+        })
+        results = data.get("results") or []
+        if isinstance(results, dict):
+            results = [results]
+        if not isinstance(results, list):
+            raise ComicVineError("Comic Vine returned invalid volume results")
+        volumes = [_parse_volume_response(r) for r in results]
+        year = (start_year or "").strip()
+        if year and (name or "").strip():
+            volumes = [
+                volume for volume in volumes
+                if (volume.start_year or "").strip() == year
+            ]
+        return volumes
+
+    def search_issues_by_number(self, issue_number: str) -> list[ComicVineIssue]:
+        """Find issues with an exact issue number, preferring the search API."""
+        number = str(issue_number or "").strip().lstrip("#")
+        if not number:
+            return []
+        for query in (f"issue_number:{number}", number):
+            data = self._request("search", {
+                "query": query,
+                "resources": "issue",
+                "limit": 100,
+            })
+            results = data.get("results") or []
+            if not isinstance(results, list):
+                continue
+            parsed = [_parse_issue_response(r) for r in results]
+            exact = [
+                item
+                for item in parsed
+                if _norm_issue_number(item.issue_number) == _norm_issue_number(number)
+            ]
+            if exact:
+                return exact
+        return []
 
     def list_issues(
         self, volume_id: str, issue_number: str | None = None

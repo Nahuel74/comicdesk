@@ -509,7 +509,7 @@ class CbzMetadataPanel(QWidget):
             return
         self._search_worker = None
         self._release_worker(worker)
-        candidates = list(getattr(result, "issues", []) or []) or list(getattr(result, "volumes", []) or [])
+        candidates = list(getattr(result, "issues", []) or [])
         if not candidates and getattr(result, "issue", None) is not None: candidates = [result.issue]
         self._show_candidates(candidates); status = getattr(result, "status", "")
         if status == STATUS_EMPTY or not candidates: self._set_status("No Comic Vine results")

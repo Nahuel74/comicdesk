@@ -12,7 +12,10 @@ def resolve_effective_theme(preference: str, app=None) -> str:
         return preference
     if preference != "system":
         return "dark"
-    gui_app = app or QGuiApplication.instance()
+    gui_app = app
+    if gui_app is not None and not isinstance(gui_app, QGuiApplication):
+        gui_app = QGuiApplication.instance()
+    gui_app = gui_app or QGuiApplication.instance()
     if gui_app is None:
         return "dark"
     scheme = gui_app.styleHints().colorScheme()
