@@ -4,6 +4,8 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-09-19
+
 ### Fixed
 
 - Metadata Comic Vine search matches series when Comic Vine uses a leading “The” (e.g. Uncanny X-Men #451 from filename metadata)
