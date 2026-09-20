@@ -4,8 +4,13 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+### Added
+
+- Metadata tab: numpad and main-digit **1–4** shortcuts for Comic Vine Search, Apply, Discard draft, and Save; action buttons show matching step numbers (**3.** Discard, **4.** Save)
+
 ### Fixed
 
+- ComicInfo save now writes **ComicDeskCvIssueId** and **ComicDeskCvSeriesId** so Comic Vine issue and series IDs survive library rescans, not only Web link parsing
 - Comic Vine identification and Metadata apply now resolve series start year and issue count when search or volume-scoped list results already include descriptions or credits
 - ComicInfo **Web** keeps a single canonical Comic Vine issue URL (slug preferred); generic `/issue/` and volume links are no longer duplicated on save
 

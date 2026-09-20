@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 import logging
 from PySide6.QtCore import QCoreApplication, QSize, Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
+    QApplication,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -324,9 +325,9 @@ class CbzMetadataPanel(QWidget):
         cv_layout.addLayout(search_row)
         self.apply_button = self._button("2. Apply", self.apply_proposal)
         self.apply_btn = self.apply_button
-        self.discard_button = self._button("Discard draft", self.discard)
+        self.discard_button = self._button("3. Discard draft", self.discard)
         self.discard_btn = self.discard_button
-        self.save_button = self._button("3. Save to archive", self.save)
+        self.save_button = self._button("4. Save to archive", self.save)
         self.save_btn = self.save_button
         self.save_button.setProperty("primary", True)
         for button in (
@@ -344,6 +345,8 @@ class CbzMetadataPanel(QWidget):
         body_splitter.setStretchFactor(1, 1)
         body_splitter.setSizes([700, 340])
         outer.addWidget(body_splitter, 1)
+        self._digit_shortcuts: list[QShortcut] = []
+        self._install_digit_shortcuts()
         self._set_action_state()
         self.apply_theme(self._theme)
 
@@ -487,9 +490,9 @@ class CbzMetadataPanel(QWidget):
     def _refresh_save_button_label(self) -> None:
         pending = len(self._dirty_sessions_queue())
         if pending > 1:
-            self.save_button.setText(f"Save {pending} archives")
+            self.save_button.setText(f"4. Save {pending} archives")
         else:
-            self.save_button.setText("3. Save to archive")
+            self.save_button.setText("4. Save to archive")
 
     def _session_for_comic(self, comic: Comic) -> MetadataSession:
         key = self._comic_path_key(comic)
@@ -667,6 +670,37 @@ class CbzMetadataPanel(QWidget):
     @staticmethod
     def _button(text, slot):
         button = QPushButton(text); button.clicked.connect(slot); return button
+
+    def _digit_shortcut_may_fire(self) -> bool:
+        if QApplication.activeModalWidget() is not None:
+            return False
+        fw = QApplication.focusWidget()
+        if fw is None:
+            return True
+        return not isinstance(fw, (QLineEdit, QTextEdit))
+
+    def _invoke_shortcut_action(self, button: QPushButton, slot) -> None:
+        if not self._digit_shortcut_may_fire() or not button.isEnabled():
+            return
+        slot()
+
+    def _install_digit_shortcuts(self) -> None:
+        bindings = (
+            (("1", Qt.Key.Key_1), self.search_button, self.search),
+            (("2", Qt.Key.Key_2), self.apply_button, self.apply_proposal),
+            (("3", Qt.Key.Key_3), self.discard_button, self.discard),
+            (("4", Qt.Key.Key_4), self.save_button, self.save),
+        )
+        for num, button, slot in bindings:
+            numpad_key, main_key = num
+            for sequence in (QKeySequence(f"Num+{numpad_key}"), QKeySequence(main_key)):
+                shortcut = QShortcut(sequence, self)
+                shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+                shortcut.activated.connect(
+                    lambda b=button, s=slot: self._invoke_shortcut_action(b, s)
+                )
+                self._digit_shortcuts.append(shortcut)
+
     def set_config(self, config=None, cache_enabled=None, *, api_key=None):
         if isinstance(config, str) or (config is None and api_key is not None):
             key = config if isinstance(config, str) else api_key

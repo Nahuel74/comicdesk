@@ -35,6 +35,29 @@ def test_writes_and_reads_enriched_metadata(tmp_path):
     assert result.tags == "hero, action"
 
 
+def test_writes_comic_vine_ids_and_reads_them_back(tmp_path):
+    path = tmp_path / "cv-ids.cbz"
+    _make_cbz(path)
+    comic = Comic(
+        path,
+        title="Issue",
+        cv_series_id="200",
+        cv_issue_id="100",
+        web_links=["https://comicvine.gamespot.com/foo/4000-100/"],
+    )
+
+    write_cbz_metadata(comic)
+    with zipfile.ZipFile(path) as archive:
+        xml = archive.read("ComicInfo.xml").decode()
+
+    assert "<ComicDeskCvIssueId>100</ComicDeskCvIssueId>" in xml
+    assert "<ComicDeskCvSeriesId>200</ComicDeskCvSeriesId>" in xml
+
+    result = read_cbz_metadata(path)
+    assert result.cv_issue_id == "100"
+    assert result.cv_series_id == "200"
+
+
 def test_preserves_unknown_tags_and_namespaces(tmp_path):
     path = tmp_path / "unknown.cbz"
     xml = (b'<ComicInfo xmlns:x="urn:extra"><Title>Old</Title>'

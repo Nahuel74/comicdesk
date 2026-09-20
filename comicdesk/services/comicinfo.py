@@ -52,7 +52,12 @@ FIELD_TAGS: tuple[tuple[str, str], ...] = (
     ("MainCharacterOrTeam", "main_character_or_team"), ("Review", "review"),
     ("SeriesGroup", "series_group"), ("GTIN", "gtin"), ("Web", "web_links"),
 )
-KNOWN_TAGS = {tag.casefold() for tag, _ in FIELD_TAGS}
+# ComicDesk-specific ComicInfo tags for CV database ids (not standard ComicInfo fields).
+CV_ID_FIELD_TAGS: tuple[tuple[str, str], ...] = (
+    ("ComicDeskCvSeriesId", "cv_series_id"),
+    ("ComicDeskCvIssueId", "cv_issue_id"),
+)
+KNOWN_TAGS = {tag.casefold() for tag, _ in FIELD_TAGS + CV_ID_FIELD_TAGS}
 
 
 def parse_comicinfo(data: bytes | str, path: Path) -> Comic:
@@ -119,6 +124,10 @@ def comic_to_element(comic: Comic, root: ET.Element | None = None) -> ET.Element
         elif isinstance(value, (list, tuple, set)):
             value = ", ".join(str(item) for item in value)
         _set_child_text(root, tag, str(value or ""), namespace)
+    for tag, field_name in CV_ID_FIELD_TAGS:
+        raw = getattr(comic, field_name, None)
+        value = str(raw or "").strip()
+        _set_child_text(root, tag, value, namespace)
     return root
 
 
@@ -163,7 +172,7 @@ def join_web_links_for_comic(comic: Comic) -> str:
 
 def _field_for_tag(tag: str) -> str | None:
     folded = tag.casefold()
-    for xml_tag, field_name in FIELD_TAGS:
+    for xml_tag, field_name in FIELD_TAGS + CV_ID_FIELD_TAGS:
         if xml_tag.casefold() == folded:
             return field_name
     return None

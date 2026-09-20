@@ -6,8 +6,9 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import QItemSelectionModel
-from PySide6.QtWidgets import QApplication, QMessageBox, QTableView
+from PySide6.QtCore import QItemSelectionModel, Qt
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QMessageBox, QTableView, QWidget
 
 from comicdesk.models import Comic, ComicVineIssue, ComicVineVolume
 from comicdesk.ui.cbz_metadata_panel import CbzMetadataPanel, CHANGED_PROPERTY
@@ -455,4 +456,148 @@ def test_stale_hydrate_finished_releases_worker(qapp, monkeypatch):
     panel._hydrate_finished(None, worker, panel._request_token, panel._path_key)
 
     assert released == [worker]
+    panel.shutdown_workers()
+
+
+def test_action_button_labels_include_step_numbers(qapp):
+    first = Comic(Path("one.cbz"))
+    second = Comic(Path("two.cbz"))
+    panel = CbzMetadataPanel(first)
+    panel.set_comics([first, second])
+
+    assert panel.discard_button.text().startswith("3.")
+    assert panel.save_button.text() == "4. Save to archive"
+
+    panel.inputs["title"].setText("Draft one")
+    key2 = panel._comic_path_key(second)
+    session2 = panel._session_for_comic(second)
+    session2.set_field("title", "Draft two")
+    panel._extra_sessions[key2] = session2
+    panel._emit_dirty()
+
+    assert panel.save_button.text() == "4. Save 2 archives"
+    panel.shutdown_workers()
+
+
+def test_digit_shortcut_search_when_enabled(qapp, monkeypatch):
+    comic = Comic(Path("book.cbz"))
+    panel = CbzMetadataPanel(comic)
+    panel.set_comics([comic])
+    panel.show()
+    calls: list[str] = []
+
+    monkeypatch.setattr(panel, "_start_search", lambda: calls.append("search"))
+    panel.setFocus()
+    qapp.processEvents()
+
+    QTest.keyClick(panel, Qt.Key.Key_1)
+    qapp.processEvents()
+    QTest.keyClick(
+        panel,
+        Qt.Key.Key_1,
+        Qt.KeyboardModifier.KeypadModifier,
+    )
+    qapp.processEvents()
+    assert calls == ["search", "search"]
+
+    calls.clear()
+    sm = panel.instance_table.selectionModel()
+    second = Comic(Path("two.cbz"))
+    panel.set_comics([comic, second])
+    sm.select(
+        panel.instance_model.index(0, 0),
+        QItemSelectionModel.SelectionFlag.ClearAndSelect
+        | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    sm.select(
+        panel.instance_model.index(1, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    assert panel.search_button.isEnabled() is False
+    QTest.keyClick(panel, Qt.Key.Key_1)
+    qapp.processEvents()
+    assert calls == []
+    panel.shutdown_workers()
+
+
+def test_digit_shortcut_blocked_in_text_field(qapp, monkeypatch):
+    comic = Comic(Path("book.cbz"))
+    panel = CbzMetadataPanel(comic)
+    panel.show()
+    calls: list[str] = []
+    monkeypatch.setattr(panel, "_start_search", lambda: calls.append("search"))
+
+    panel.instance_filter.setFocus()
+    qapp.processEvents()
+    QTest.keyClick(panel.instance_filter, Qt.Key.Key_1)
+    qapp.processEvents()
+    assert calls == []
+    panel.shutdown_workers()
+
+
+def test_digit_shortcuts_apply_discard_save(qapp, monkeypatch):
+    comic = Comic(Path("book.cbz"), series_name="Old")
+    panel = CbzMetadataPanel(comic)
+    panel.show()
+    proposal = ComicVineIssue(
+        id="100",
+        series_id="200",
+        series_name="New",
+        volume="2015",
+        issue_number="5",
+        cover_date="2015-06-01",
+        web_url="https://comicvine.test/4000-100/",
+    )
+    panel._show_candidates([proposal])
+    panel.candidates_list.setCurrentRow(0)
+    panel.setFocus()
+    qapp.processEvents()
+    assert panel.apply_button.isEnabled() is True
+    QTest.keyClick(panel, Qt.Key.Key_2)
+    qapp.processEvents()
+    assert panel.session.draft.series_name == "New"
+
+    panel.inputs["title"].setText("Draft")
+    assert panel.discard_button.isEnabled() is True
+    assert panel.save_button.isEnabled() is True
+
+    QTest.keyClick(panel, Qt.Key.Key_3)
+    qapp.processEvents()
+    assert panel.session.is_dirty is False
+
+    panel.inputs["title"].setText("Draft again")
+    save_started: list[int] = []
+
+    def capture_start(self):
+        save_started.append(1)
+        return False
+
+    monkeypatch.setattr(CbzMetadataPanel, "_start_next_write", capture_start)
+    QTest.keyClick(panel, Qt.Key.Key_4)
+    qapp.processEvents()
+    assert save_started == [1]
+
+    panel.discard_button.setEnabled(False)
+    panel.save_button.setEnabled(False)
+    save_started.clear()
+    QTest.keyClick(panel, Qt.Key.Key_3)
+    QTest.keyClick(panel, Qt.Key.Key_4)
+    qapp.processEvents()
+    assert save_started == []
+    panel.shutdown_workers()
+
+
+def test_digit_shortcut_blocked_with_modal(qapp, monkeypatch):
+    comic = Comic(Path("book.cbz"))
+    panel = CbzMetadataPanel(comic)
+    panel.show()
+    calls: list[str] = []
+    monkeypatch.setattr(panel, "_start_search", lambda: calls.append("search"))
+    monkeypatch.setattr(QApplication, "activeModalWidget", lambda: QWidget())
+
+    panel.setFocus()
+    qapp.processEvents()
+    QTest.keyClick(panel, Qt.Key.Key_1)
+    qapp.processEvents()
+    assert calls == []
     panel.shutdown_workers()
