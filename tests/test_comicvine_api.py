@@ -107,6 +107,43 @@ class TestComicVineClient:
         assert issue.store_date == ""
 
     @patch("comicdesk.services.comicvine_api.httpx.Client")
+    def test_resolve_parent_volume_fetches_missing_series_fields(self, mock_client_cls, client):
+        issue_response = MagicMock()
+        issue_response.json.return_value = {
+            "status_code": 1,
+            "results": {
+                "id": 105810,
+                "volume": {"id": 11310, "name": "The Pulse"},
+                "issue_number": "10",
+                "cover_date": "2005-01-01",
+                "description": "<p>House of M</p>",
+                "site_detail_url": "https://comicvine.gamespot.com/the-pulse-10/4000-105810/",
+            },
+        }
+        volume_response = MagicMock()
+        volume_response.json.return_value = {
+            "status_code": 1,
+            "results": {
+                "id": 11310,
+                "name": "The Pulse",
+                "start_year": 2004,
+                "count_of_issues": 11,
+                "site_detail_url": "https://comicvine.gamespot.com/the-pulse/4050-11310/",
+            },
+        }
+        issue_response.raise_for_status = MagicMock()
+        volume_response.raise_for_status = MagicMock()
+        mock_get = mock_client_cls.return_value.__enter__.return_value.get
+        mock_get.side_effect = [issue_response, volume_response]
+
+        parsed = client.get_issue("105810")
+
+        assert parsed.volume_start_year == "2004"
+        assert parsed.volume == "2004"
+        assert parsed.volume_count_of_issues == "11"
+        assert mock_get.call_count == 2
+
+    @patch("comicdesk.services.comicvine_api.httpx.Client")
     def test_request_omits_custom_accept_encoding(self, mock_client_cls, client):
         mock_response = MagicMock()
         mock_response.json.return_value = {"status_code": 1, "results": []}

@@ -28,7 +28,7 @@ from comicdesk.ui.metadata_instance_model import MetadataInstanceModel
 from comicdesk.models import Comic, ComicVineVolume
 from comicdesk.services.comicinfo import FIELD_TAGS, join_web_links
 from comicdesk.services.identification import STATUS_CANDIDATES, STATUS_EMPTY
-from comicdesk.services.identification import issue_needs_hydrate
+from comicdesk.services.identification import issue_needs_hydrate, issue_needs_volume_resolve
 from comicdesk.services.metadata_session import MetadataSession, BATCH_SERIES_FIELDS
 from comicdesk.ui.cbz_metadata_workers import MetadataSearchWorker, MetadataHydrateWorker, MetadataWriteWorker
 from comicdesk.ui.comicvine_candidate_widgets import (
@@ -991,7 +991,7 @@ class CbzMetadataPanel(QWidget):
         self._proposal = candidate if self._is_proposal(candidate) else None
         self._set_action_state()
         if self._proposal is not None and self._is_issue(self._proposal):
-            if issue_needs_hydrate(self._proposal):
+            if issue_needs_hydrate(self._proposal) or issue_needs_volume_resolve(self._proposal):
                 self._hydrate_candidate(self._proposal)
     @staticmethod
     def _is_issue(candidate):

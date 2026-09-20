@@ -307,28 +307,40 @@ class ComicVineClient:
         
         return data
 
+    def resolve_parent_volume(self, issue: ComicVineIssue) -> None:
+        """Fill series start year and issue count from the parent volume record."""
+        start_year = (issue.volume_start_year or "").strip()
+        if re.fullmatch(r"(19|20)\d{2}", start_year):
+            issue.volume = start_year
+        has_count = bool((issue.volume_count_of_issues or "").strip())
+        has_year = bool(re.fullmatch(r"(19|20)\d{2}", start_year))
+        if has_year and has_count:
+            return
+        series_id = str(issue.series_id or "").strip()
+        if not series_id:
+            return
+        try:
+            volume = self.get_volume(series_id)
+            if volume.start_year:
+                issue.volume = volume.start_year
+                issue.volume_start_year = volume.start_year
+            if volume.count_of_issues:
+                issue.volume_count_of_issues = volume.count_of_issues
+            logger.info(
+                "comicvine_volume_resolved series_id=%s start_year=%s",
+                series_id,
+                issue.volume_start_year,
+            )
+        except ComicVineError:
+            logger.warning("comicvine_volume_lookup_failed series_id=%s", series_id)
+
     def get_issue(self, issue_id: str) -> ComicVineIssue:
         """Get issue details by ID."""
         data = self._request(f"issue/4000-{issue_id}", {
             "field_list": ISSUE_FIELDS
         })
         issue = _parse_issue_response(data.get("results") or {})
-        # Comic Vine's issue payload identifies the parent volume but does not
-        # reliably include its start year. Resolve it explicitly so the local
-        # Comic.volume is the real volume year, never the volume's database ID.
-        start_year = (issue.volume_start_year or "").strip()
-        if re.fullmatch(r"(19|20)\d{2}", start_year):
-            issue.volume = start_year
-        elif issue.series_id:
-            try:
-                volume = self.get_volume(issue.series_id)
-                issue.volume = volume.start_year
-                issue.volume_start_year = volume.start_year
-                issue.volume_count_of_issues = volume.count_of_issues
-                logger.info("comicvine_volume_resolved series_id=%s start_year=%s",
-                            issue.series_id, issue.volume_start_year)
-            except ComicVineError:
-                logger.warning("comicvine_volume_lookup_failed series_id=%s", issue.series_id)
+        self.resolve_parent_volume(issue)
         return issue
 
     def get_volume(self, volume_id: str) -> ComicVineVolume:

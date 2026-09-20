@@ -48,6 +48,9 @@ class Client:
         self.calls.append(("search_volume", query))
         return self.volumes
 
+    def resolve_parent_volume(self, issue):
+        self.calls.append(("resolve_parent_volume", issue.id))
+
 
 def test_issue_id_is_an_exact_match_and_identification_is_read_only():
     comic = Comic(Path("local.cbz"), series_name="Local", issue_number="9",
@@ -64,6 +67,8 @@ def test_issue_id_is_an_exact_match_and_identification_is_read_only():
 def test_series_id_and_number_use_scoped_issue_lookup():
     found = issue("11", series_id="55", number="03")
     found.description = "Complete from list_issues"
+    found.volume_start_year = "2004"
+    found.volume_count_of_issues = "12"
     comic = Comic(Path("local.cbz"), cv_series_id="55", issue_number="3")
     client = Client(listed=[found])
 
@@ -132,6 +137,9 @@ def test_scoped_series_id_retries_unfiltered_volume_list_when_strict_filter_empt
         number="3",
         store_date="2005-06-01",
     )
+    mutopia_3.volume_start_year = "2005"
+    mutopia_3.volume_count_of_issues = "5"
+    mutopia_3.description = "From unfiltered list"
     comic = Comic(
         path,
         cv_series_id="22712",
@@ -519,6 +527,58 @@ def test_api_failure_still_allows_filename_fallback():
 
     assert result.status == STATUS_EXACT
     assert result.issue is found
+
+
+def test_issue_needs_volume_resolve_when_description_present():
+    from comicdesk.services.identification import issue_needs_hydrate, issue_needs_volume_resolve
+
+    partial = issue("9", series_id="55")
+    partial.description = "Already here"
+    assert not issue_needs_hydrate(partial)
+    assert issue_needs_volume_resolve(partial)
+
+
+def test_scoped_exact_match_resolves_parent_volume_without_get_issue():
+    listed = issue("11", series_id="55", number="03")
+    listed.description = "Listed payload"
+    comic = Comic(Path("local.cbz"), cv_series_id="55", issue_number="3")
+
+    class ResolveClient(Client):
+        def resolve_parent_volume(self, issue):
+            self.calls.append(("resolve_parent_volume", issue.id))
+            issue.volume_start_year = "2004"
+            issue.volume = "2004"
+            issue.volume_count_of_issues = "50"
+
+    client = ResolveClient(listed=[listed])
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue.volume_start_year == "2004"
+    assert result.issue.volume_count_of_issues == "50"
+    assert ("resolve_parent_volume", "11") in client.calls
+    assert not any(call[0] == "get_issue" for call in client.calls)
+
+
+def test_search_exact_resolves_volume_when_description_already_present():
+    partial = issue("42", series_name="Saga", number="3", series_id="100")
+    partial.description = "Complete from search"
+
+    class ResolveClient(Client):
+        def resolve_parent_volume(self, issue):
+            self.calls.append(("resolve_parent_volume", issue.id))
+            issue.volume_start_year = "2012"
+            issue.volume = "2012"
+            issue.volume_count_of_issues = "48"
+
+    comic = Comic(Path("local.cbz"), series_name="Saga", issue_number="3")
+    client = ResolveClient(searched=[partial])
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue.volume_count_of_issues == "48"
+    assert ("resolve_parent_volume", "42") in client.calls
+    assert not any(call[0] == "get_issue" for call in client.calls)
 
 
 def test_search_exact_match_is_hydrated_by_id():

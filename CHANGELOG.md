@@ -4,6 +4,11 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+### Fixed
+
+- Comic Vine identification and Metadata apply now resolve series start year and issue count when search or volume-scoped list results already include descriptions or credits
+- ComicInfo **Web** keeps a single canonical Comic Vine issue URL (slug preferred); generic `/issue/` and volume links are no longer duplicated on save
+
 ## [1.8.5] - 2026-09-20
 
 ### Added

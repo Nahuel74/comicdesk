@@ -57,6 +57,8 @@ def apply_issue_metadata(comic: Comic, issue: ComicVineIssue, *, overwrite=False
     }
     values.update({field: ", ".join(names) for field, names in credits_by_role(issue.person_credits).items()})
     _fill_fields(comic, values, overwrite)
+    if issue.concept_credits:
+        _set_field(comic, "tags", ", ".join(issue.concept_credits), overwrite)
     if issue.volume_count_of_issues:
         _set_field(comic, "count", issue.volume_count_of_issues, overwrite)
 

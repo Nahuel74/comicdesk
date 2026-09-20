@@ -14,6 +14,10 @@ from pathlib import Path
 
 from comicdesk.models import Comic
 from comicdesk.utils.url_parser import extract_all_cv_ids
+from comicdesk.utils.comicvine_web_links import (
+    link_covers_issue_id,
+    normalize_issue_web_links,
+)
 
 
 MAX_COMICINFO_BYTES = 2 * 1024 * 1024
@@ -147,16 +151,13 @@ def join_web_links(value: object) -> str:
 
 
 def join_web_links_for_comic(comic: Comic) -> str:
-    """Serialize explicit links and derive stable Comic Vine links from IDs."""
+    """Serialize Web links, keeping a single canonical Comic Vine issue URL."""
     links = join_web_links(comic.web_links).split()
-    derived = []
-    if comic.cv_issue_id:
-        derived.append(f"https://comicvine.gamespot.com/issue/4000-{comic.cv_issue_id}/")
-    if comic.cv_series_id:
-        derived.append(f"https://comicvine.gamespot.com/volume/4050-{comic.cv_series_id}/")
-    for link in derived:
-        if link not in links:
-            links.append(link)
+    issue_id = str(comic.cv_issue_id or "").strip()
+    if issue_id:
+        if not any(link_covers_issue_id(link, issue_id) for link in links):
+            links.append(f"https://comicvine.gamespot.com/issue/4000-{issue_id}/")
+        links = normalize_issue_web_links(links, issue_id=issue_id)
     return " ".join(links)
 
 

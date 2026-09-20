@@ -10,6 +10,7 @@ from typing import Optional
 
 from comicdesk.models import Comic, ComicVineIssue, ComicVineVolume
 from comicdesk.services.comicvine_api import SEARCH_RESULT_LIMIT
+from comicdesk.utils.comicvine_web_links import normalize_issue_web_links
 from comicdesk.utils.filename_parser import parse_comic_filename
 
 STATUS_EXACT = "exact"
@@ -54,12 +55,18 @@ def identify_comic(comic: Comic, client, *, issues_only: bool = False) -> Identi
         exact = _unique_issue_match(listed, series_name, issue_number)
         if exact:
             _enrich_issue_volume_from_comic(comic, exact)
+            hydrated = _hydrate_exact_issue(client, exact)
+            if hydrated is not None:
+                exact = hydrated
             return IdentificationResult(STATUS_EXACT, issue=exact, issues=[exact])
         if listed:
             narrowed = _narrow_issues_by_year(listed, hint_year)
             if len(narrowed) == 1:
                 issue = narrowed[0]
                 _enrich_issue_volume_from_comic(comic, issue)
+                hydrated = _hydrate_exact_issue(client, issue)
+                if hydrated is not None:
+                    issue = hydrated
                 return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
             if narrowed:
                 return IdentificationResult(STATUS_CANDIDATES, issues=narrowed)
@@ -164,6 +171,13 @@ def apply_issue_to_comic(
     if issue.web_url and issue.web_url not in comic.web_links:
         comic.web_links.append(issue.web_url)
     _apply_issue_rich_fields(comic, issue, overwrite)
+    resolved_issue_id = str(issue.id or comic.cv_issue_id or "").strip()
+    if resolved_issue_id:
+        comic.web_links = normalize_issue_web_links(
+            comic.web_links,
+            issue_id=resolved_issue_id,
+            preferred_url=issue.web_url or "",
+        )
 
 
 def apply_volume_to_comic(
@@ -176,7 +190,7 @@ def apply_volume_to_comic(
         comic.series_name = volume.name
     if volume.start_year and (overwrite or not comic.volume or comic.volume == volume.id):
         comic.volume = volume.start_year
-    if volume.web_url and volume.web_url not in comic.web_links:
+    if volume.web_url and not comic.cv_issue_id and volume.web_url not in comic.web_links:
         comic.web_links.append(volume.web_url)
     _apply_volume_rich_fields(comic, volume, overwrite)
 
@@ -193,6 +207,8 @@ def _apply_issue_rich_fields(comic, issue, overwrite):
     for field, value in values.items():
         if value and (overwrite or not getattr(comic, field, "")):
             setattr(comic, field, value)
+    if issue.concept_credits and (overwrite or not comic.tags):
+        comic.tags = ", ".join(issue.concept_credits)
     if issue.volume_count_of_issues and (overwrite or not comic.count):
         comic.count = issue.volume_count_of_issues
 
@@ -667,12 +683,27 @@ def _hydrate_exact_issue(client, issue: ComicVineIssue):
     """
     if not getattr(issue, "id", None):
         return None
-    if not issue_needs_hydrate(issue):
-        return issue
-    try:
-        return client.get_issue(issue.id)
-    except Exception:
-        return None
+    if issue_needs_hydrate(issue):
+        try:
+            return client.get_issue(issue.id)
+        except Exception:
+            return None
+    if issue_needs_volume_resolve(issue):
+        try:
+            client.resolve_parent_volume(issue)
+        except Exception:
+            return None
+    return issue
+
+
+def issue_needs_volume_resolve(issue: ComicVineIssue) -> bool:
+    """Return True when parent volume year or issue count is still missing."""
+    if not str(getattr(issue, "series_id", "") or "").strip():
+        return False
+    start_year = (getattr(issue, "volume_start_year", "") or "").strip()
+    if not re.fullmatch(r"(19|20)\d{2}", start_year):
+        return True
+    return not (getattr(issue, "volume_count_of_issues", "") or "").strip()
 
 
 def issue_needs_hydrate(issue: ComicVineIssue) -> bool:
