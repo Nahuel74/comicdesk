@@ -37,6 +37,8 @@ from comicdesk.ui.theme import dialog_stylesheet
 
 logger = logging.getLogger(__name__)
 
+WORKER_JOIN_TIMEOUT_MS = 5000
+
 
 class AddReadingListIssueDialog(QDialog):
     """Collect metadata for a list entry without a local CBZ file."""
@@ -165,12 +167,34 @@ class AddReadingListIssueDialog(QDialog):
         if busy:
             self.results_label.setText("Searching…")
 
+    def _join_or_defer_delete(self, thread, *, defer_signals=None) -> None:
+        if thread.isRunning():
+            if not thread.wait(WORKER_JOIN_TIMEOUT_MS):
+                signals = defer_signals if defer_signals is not None else (thread.finished,)
+                for signal in signals:
+                    signal.connect(thread.deleteLater)
+                return
+        thread.deleteLater()
+
+    def _release_cover_loader(self, loader: CoverLoader) -> None:
+        if loader in self._cover_loaders:
+            self._cover_loaders.remove(loader)
+        loader.cancel()
+        try:
+            loader.finished.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            loader.error.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+        self._join_or_defer_delete(
+            loader, defer_signals=(loader.finished, loader.error)
+        )
+
     def _stop_cover_loaders(self) -> None:
-        for loader in self._cover_loaders:
-            loader.cancel()
-            if loader.isRunning():
-                loader.wait(100)
-            loader.deleteLater()
+        for loader in list(self._cover_loaders):
+            self._release_cover_loader(loader)
         self._cover_loaders.clear()
 
     def _start_search(self) -> None:

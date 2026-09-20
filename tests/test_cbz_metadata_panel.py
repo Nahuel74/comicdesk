@@ -1,6 +1,7 @@
 """Offscreen smoke tests for the CBZ metadata panel."""
 
 import os
+import threading
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QTableView, QWidget
 
 from comicdesk.models import Comic, ComicVineIssue, ComicVineVolume
 from comicdesk.ui.cbz_metadata_panel import CbzMetadataPanel, CHANGED_PROPERTY
+from comicdesk.ui.comicvine_candidate_widgets import CoverLoader
 
 
 @pytest.fixture
@@ -600,4 +602,73 @@ def test_digit_shortcut_blocked_with_modal(qapp, monkeypatch):
     QTest.keyClick(panel, Qt.Key.Key_1)
     qapp.processEvents()
     assert calls == []
+    panel.shutdown_workers()
+
+
+def test_stop_cover_loaders_uses_join_or_defer_delete(qapp, monkeypatch):
+    panel = CbzMetadataPanel(Comic(Path("book.cbz")))
+    loader = CoverLoader("https://example.test/cover.jpg", 0)
+    panel._cover_loaders = [loader]
+    join_calls: list[tuple] = []
+
+    def capture_join(thread, *, defer_signals=None):
+        join_calls.append((thread, defer_signals))
+
+    monkeypatch.setattr(panel, "_join_or_defer_delete", capture_join)
+    panel._stop_cover_loaders()
+
+    assert join_calls == [(loader, (loader.finished, loader.error))]
+    assert panel._cover_loaders == []
+    panel.shutdown_workers()
+
+
+def test_join_or_defer_delete_defers_delete_when_still_running(qapp, monkeypatch):
+    panel = CbzMetadataPanel(Comic(Path("book.cbz")))
+    loader = CoverLoader("https://example.test/cover.jpg", 0)
+    delete_calls: list[bool] = []
+
+    monkeypatch.setattr(loader, "deleteLater", lambda: delete_calls.append(True))
+    monkeypatch.setattr(loader, "isRunning", lambda: True)
+    monkeypatch.setattr(loader, "wait", lambda _ms: False)
+
+    panel._join_or_defer_delete(loader, defer_signals=(loader.finished, loader.error))
+
+    assert delete_calls == []
+    loader.error.emit(0)
+    qapp.processEvents()
+    panel.shutdown_workers()
+
+
+def test_shutdown_workers_with_slow_cover_loader(qapp, monkeypatch):
+    import comicdesk.ui.comicvine_candidate_widgets as candidate_widgets
+
+    blocked = threading.Event()
+
+    def slow_get(*_args, **_kwargs):
+        blocked.wait(timeout=5)
+        raise RuntimeError("blocked cover fetch released")
+
+    monkeypatch.setattr(candidate_widgets.httpx, "get", slow_get)
+
+    panel = CbzMetadataPanel(Comic(Path("book.cbz")))
+    hit = ComicVineIssue(
+        "1",
+        "2",
+        "Series",
+        "1",
+        "1",
+        "2020",
+        "url",
+        image_url="https://example.test/cover.jpg",
+    )
+    panel._show_candidates([hit])
+    assert len(panel._cover_loaders) == 1
+    loader = panel._cover_loaders[0]
+
+    panel.shutdown_workers()
+    assert panel._cover_loaders == []
+
+    blocked.set()
+    assert loader.wait(5000)
+    qapp.processEvents()
     panel.shutdown_workers()

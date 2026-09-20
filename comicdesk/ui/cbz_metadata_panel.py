@@ -1012,12 +1012,25 @@ class CbzMetadataPanel(QWidget):
         if isinstance(widget, CandidateResultRow):
             widget.set_cover_failed()
 
+    def _release_cover_loader(self, loader: CoverLoader) -> None:
+        if loader in self._cover_loaders:
+            self._cover_loaders.remove(loader)
+        loader.cancel()
+        try:
+            loader.finished.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            loader.error.disconnect()
+        except (TypeError, RuntimeError):
+            pass
+        self._join_or_defer_delete(
+            loader, defer_signals=(loader.finished, loader.error)
+        )
+
     def _stop_cover_loaders(self) -> None:
-        for loader in self._cover_loaders:
-            loader.cancel()
-            if loader.isRunning():
-                loader.wait(100)
-            loader.deleteLater()
+        for loader in list(self._cover_loaders):
+            self._release_cover_loader(loader)
         self._cover_loaders.clear()
     def _candidate_selected(self):
         item = self.candidates_list.currentItem()
@@ -1197,16 +1210,21 @@ class CbzMetadataPanel(QWidget):
             return
         self._path_key = self._comic_path_key(comic)
         self.instance_model.set_editing_path(self._path_key)
+    def _join_or_defer_delete(self, thread, *, defer_signals=None) -> None:
+        if thread.isRunning():
+            if not thread.wait(WORKER_JOIN_TIMEOUT_MS):
+                signals = defer_signals if defer_signals is not None else (thread.finished,)
+                for signal in signals:
+                    signal.connect(thread.deleteLater)
+                return
+        thread.deleteLater()
+
     def _release_worker(self, worker) -> None:
         """Stop a metadata worker and destroy it only after the thread exits."""
         if worker is None:
             return
         worker.cancel()
-        if worker.isRunning():
-            if not worker.wait(WORKER_JOIN_TIMEOUT_MS):
-                worker.finished.connect(worker.deleteLater)
-                return
-        worker.deleteLater()
+        self._join_or_defer_delete(worker)
 
     def _stop_search_worker(self) -> None:
         worker = self._search_worker
