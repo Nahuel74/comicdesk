@@ -19,7 +19,10 @@ from comicdesk.services.cbr_backend import (
 )
 from comicdesk.services.cbz_writer import (
     CbzWriteError,
+    _build_comicinfo_xml,
+    _rewrite_archive,
     comicinfo_xml_bytes,
+    is_zip_comic_archive,
     parse_comicinfo_root,
 )
 
@@ -40,15 +43,22 @@ def write_cbr_as_cbz_metadata(comic: Comic) -> Path:
             f"Cannot convert {cbr_path.name}: {cbz_path.name} already exists"
         )
 
+    zip_sourced = is_zip_comic_archive(cbr_path)
     source_mode = None
     tmp_path = None
     try:
         source_mode = stat.S_IMODE(cbr_path.stat().st_mode)
-        xml_bytes = _build_comicinfo_xml_from_cbr(cbr_path, comic)
+        if zip_sourced:
+            xml_bytes = _build_comicinfo_xml(cbr_path, comic)
+        else:
+            xml_bytes = _build_comicinfo_xml_from_cbr(cbr_path, comic)
         tmp_fd, tmp_name = tempfile.mkstemp(suffix=".cbz", dir=cbr_path.parent)
         os.close(tmp_fd)
         tmp_path = Path(tmp_name)
-        _write_cbz_from_cbr(cbr_path, tmp_path, xml_bytes)
+        if zip_sourced:
+            _rewrite_archive(cbr_path, tmp_path, xml_bytes)
+        else:
+            _write_cbz_from_cbr(cbr_path, tmp_path, xml_bytes)
         _validate_cbz(tmp_path)
         os.chmod(tmp_path, source_mode)
         os.replace(tmp_path, cbz_path)

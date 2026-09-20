@@ -34,6 +34,12 @@ def _reset_cbr_backend():
     reset_cbr_opener_for_tests()
 
 
+def _write_zip_cbr(path, members: dict[str, bytes]) -> None:
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, data in members.items():
+            archive.writestr(name, data)
+
+
 def _register_fake_cbr(members: dict[str, bytes]):
     def opener(path):
         return _InMemoryCbrArchive(members)
@@ -138,6 +144,57 @@ def test_cbr_conversion_fails_when_cbz_exists(tmp_path):
     with pytest.raises(CbzWriteError, match="already exists"):
         write_comic_metadata(Comic(path=cbr, title="T"))
     assert cbr.exists()
+
+
+def test_misnamed_zip_cbr_save_writes_cbz(tmp_path):
+    cbr = tmp_path / "book.cbr"
+    _write_zip_cbr(
+        cbr,
+        {
+            "ComicInfo.xml": SAMPLE_XML,
+            "01.jpg": b"page-one",
+            "02.jpg": b"page-two",
+        },
+    )
+    comic = Comic(path=cbr, title="Updated title")
+    result = write_comic_metadata(comic)
+    cbz = tmp_path / "book.cbz"
+    assert result == cbz
+    assert comic.path == cbz
+    assert not cbr.exists()
+    with zipfile.ZipFile(cbz) as archive:
+        names = archive.namelist()
+        assert "ComicInfo.xml" in names
+        assert "01.jpg" in names
+        assert archive.read("01.jpg") == b"page-one"
+        xml = archive.read("ComicInfo.xml").decode()
+        assert "Updated title" in xml
+
+
+def test_misnamed_zip_cbr_read_comicinfo(tmp_path):
+    path = tmp_path / "book.cbr"
+    _write_zip_cbr(path, {"ComicInfo.xml": SAMPLE_XML, "page.jpg": b"img"})
+    comic = read_comic_metadata(path)
+    assert comic.series_name == "Batman"
+    assert comic.issue_number == "1"
+
+
+def test_misnamed_zip_cbr_collision_when_cbz_exists(tmp_path):
+    cbr = tmp_path / "book.cbr"
+    _write_zip_cbr(cbr, {"page.jpg": b"x"})
+    (tmp_path / "book.cbz").write_bytes(b"zip")
+    with pytest.raises(CbzWriteError, match="already exists"):
+        write_comic_metadata(Comic(path=cbr, title="T"))
+    assert cbr.exists()
+
+
+def test_invalid_cbr_save_fails_cleanly(tmp_path):
+    cbr = tmp_path / "book.cbr"
+    cbr.write_bytes(b"not a zip or rar archive")
+    with pytest.raises(CbzWriteError):
+        write_comic_metadata(Comic(path=cbr, title="T"))
+    assert cbr.exists()
+    assert not (tmp_path / "book.cbz").exists()
 
 
 def test_cbr_conversion_replace_failure_keeps_cbr(tmp_path, monkeypatch):

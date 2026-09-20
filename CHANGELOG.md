@@ -4,6 +4,10 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+### Fixed
+
+- Metadata save for `.cbr` files that are ZIP archives (misnamed CBZ) now converts to `.cbz` instead of failing as invalid RAR
+
 ## [1.8.6] - 2026-09-20
 
 ### Added

@@ -13,6 +13,8 @@ from comicdesk.models import Comic
 from comicdesk.services.comicinfo import comic_to_element, local_name
 
 COMICINFO_NAME = "ComicInfo.xml"
+
+
 class CbzWriteError(Exception):
     """Raised when a CBZ cannot be updated safely."""
 
@@ -43,6 +45,19 @@ def write_cbz_metadata(comic: Comic) -> Path:
             tmp_path.unlink(missing_ok=True)
         raise CbzWriteError(f"Unable to write comic metadata: {exc}") from exc
     return cbz_path
+
+
+def is_zip_comic_archive(path: Path) -> bool:
+    """True when *path* is a readable ZIP archive (e.g. misnamed .cbr CBZ)."""
+    path = Path(path)
+    if not path.is_file():
+        return False
+    try:
+        with zipfile.ZipFile(path, "r") as archive:
+            archive.namelist()
+        return True
+    except (zipfile.BadZipFile, OSError):
+        return False
 
 
 def comicinfo_xml_bytes(comic: Comic, root: ET.Element | None = None) -> bytes:
