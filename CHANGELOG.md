@@ -4,6 +4,11 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+### Fixed
+
+- Metadata Comic Vine search with a pinned series ID retries volume-scoped issue listing when Comic Vine’s issue-number filter returns no rows (e.g. Mutopia X with a correct volume id)
+- Comic Vine identification ignores ComicInfo issue numbers with an “(of N)” pack suffix when the filename supplies a plain issue number
+
 ## [1.8.4] - 2026-09-19
 
 ### Added

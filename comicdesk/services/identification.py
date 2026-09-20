@@ -47,10 +47,10 @@ def identify_comic(comic: Comic, client, *, issues_only: bool = False) -> Identi
         issue = client.get_issue(comic.cv_issue_id)
         return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
 
-    issue_number = (comic.issue_number or "").strip() or parsed.issue_number
+    issue_number = _issue_number_for_lookup(comic, parsed)
     series_name = (comic.series_name or "").strip() or parsed.series_name
     if comic.cv_series_id and issue_number:
-        listed = client.list_issues(comic.cv_series_id, issue_number)
+        listed = _list_issues_on_volume(client, comic.cv_series_id, issue_number)
         exact = _unique_issue_match(listed, series_name, issue_number)
         if exact:
             _enrich_issue_volume_from_comic(comic, exact)
@@ -425,7 +425,7 @@ def _issues_from_matched_volumes(
     seen_ids: set[str] = set()
     for volume in matched_volumes[:_MAX_VOLUME_ISSUE_LOOKUPS]:
         try:
-            listed = client.list_issues(volume.id, issue_number)
+            listed = _list_issues_on_volume(client, volume.id, issue_number)
         except Exception:
             continue
         volume_issues: list[ComicVineIssue] = []
@@ -477,6 +477,24 @@ def _lookup_by_volume_and_issue(
     )
 
 
+def _list_issues_on_volume(client, volume_id: str, issue_number: str) -> list[ComicVineIssue]:
+    """List issues on a volume; retry without issue_number filter when the API returns none."""
+    listed = client.list_issues(volume_id, issue_number)
+    if listed or not (issue_number or "").strip():
+        return listed
+    try:
+        on_volume = client.list_issues(volume_id, None)
+    except Exception:
+        return []
+    volume_key = str(volume_id).strip()
+    return [
+        item
+        for item in on_volume
+        if str(item.series_id or "").strip() == volume_key
+        and _issue_matches(item.issue_number, issue_number)
+    ]
+
+
 def _unique_issue_match(
     issues: list[ComicVineIssue], series_name: str, issue_number: str
 ) -> Optional[ComicVineIssue]:
@@ -494,7 +512,25 @@ def _unique_issue_match(
     return None
 
 
+_ISSUE_OF_COUNT_SUFFIX = re.compile(r"\s*\(of\s+\d+\)\s*$", re.IGNORECASE)
 _LEADING_ARTICLE = re.compile(r"^(?:the|a|an)\s+")
+
+
+def _issue_number_for_lookup(comic: Comic, parsed) -> str:
+    """Resolve an issue number for Comic Vine lookup.
+
+    ComicInfo often stores pack positions like ``03 (of 05)`` while filenames
+    parse to a plain issue number; prefer the filename when the suffix is present.
+    """
+    local = (comic.issue_number or "").strip()
+    from_name = (parsed.issue_number or "").strip()
+    if local and _ISSUE_OF_COUNT_SUFFIX.search(local) and from_name:
+        return from_name
+    if local:
+        stripped = _ISSUE_OF_COUNT_SUFFIX.sub("", local).strip().lstrip("#")
+        if stripped:
+            return stripped
+    return from_name
 
 
 def _norm_series_key(value: str) -> str:

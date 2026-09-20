@@ -112,9 +112,86 @@ def test_scoped_empty_list_returns_empty_without_broad_search():
     result = identify_comic(comic, client)
 
     assert result.status == STATUS_EMPTY
-    assert client.calls == [("list_issues", "55", "3")]
+    assert client.calls == [
+        ("list_issues", "55", "3"),
+        ("list_issues", "55", None),
+    ]
     assert not any(call[0] == "search_issue" for call in client.calls)
     assert not any(call[0] == "search_volume" for call in client.calls)
+
+
+def test_scoped_series_id_retries_unfiltered_volume_list_when_strict_filter_empty():
+    path = Path(
+        "Mutopia X 03 (of 05) (2005) (Digital) (Kileko-Empire).cbz"
+    )
+    mutopia_3 = issue(
+        "90001",
+        series_id="22712",
+        series_name="Mutopia X",
+        volume="2005",
+        number="3",
+        store_date="2005-06-01",
+    )
+    comic = Comic(
+        path,
+        cv_series_id="22712",
+        issue_number="3",
+        series_name="Mutopia X",
+    )
+
+    class RetryListClient(Client):
+        def list_issues(self, series_id, issue_number):
+            self.calls.append(("list_issues", series_id, issue_number))
+            if series_id == "22712" and issue_number == "3":
+                return []
+            if series_id == "22712" and issue_number is None:
+                return [mutopia_3]
+            return []
+
+    client = RetryListClient()
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue is mutopia_3
+    assert client.calls == [
+        ("list_issues", "22712", "3"),
+        ("list_issues", "22712", None),
+    ]
+    assert not any(call[0] == "search_issue" for call in client.calls)
+
+
+def test_scoped_series_id_ignores_comicinfo_of_count_suffix():
+    path = Path(
+        "Mutopia X 03 (of 05) (2005) (Digital) (Kileko-Empire).cbz"
+    )
+    mutopia_3 = issue(
+        "136176",
+        series_id="22712",
+        series_name="Mutopia X",
+        number="3",
+    )
+    comic = Comic(
+        path,
+        cv_series_id="22712",
+        issue_number="03 (of 05)",
+        series_name="Mutopia X",
+    )
+
+    class RetryListClient(Client):
+        def list_issues(self, series_id, issue_number):
+            self.calls.append(("list_issues", series_id, issue_number))
+            if series_id == "22712" and issue_number == "3":
+                return []
+            if series_id == "22712" and issue_number is None:
+                return [mutopia_3]
+            return []
+
+    client = RetryListClient()
+    result = identify_comic(comic, client)
+
+    assert result.status == STATUS_EXACT
+    assert result.issue is mutopia_3
+    assert client.calls[0] == ("list_issues", "22712", "3")
 
 
 def test_series_and_number_uses_volume_lookup_before_broad_search():
