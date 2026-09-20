@@ -37,9 +37,6 @@ class DownloadQueueItem:
     id: str
     issue: GetComicsIssue
     dest_dir: Path
-    api_key: str = ""
-    cache_enabled: bool = True
-    auto_enrich: bool = True
     selected_link: GetComicsDownloadLink | None = None
     status: DownloadStatus = DownloadStatus.PENDING
     progress: int = 0
@@ -81,9 +78,6 @@ class DownloadQueueManager(QObject):
         issue: GetComicsIssue,
         dest_dir: Path,
         *,
-        api_key: str = "",
-        cache_enabled: bool = True,
-        auto_enrich: bool = True,
         selected_link: GetComicsDownloadLink | None = None,
     ) -> str:
         item_id = uuid.uuid4().hex[:12]
@@ -91,9 +85,6 @@ class DownloadQueueManager(QObject):
             id=item_id,
             issue=issue,
             dest_dir=Path(dest_dir),
-            api_key=api_key,
-            cache_enabled=cache_enabled,
-            auto_enrich=auto_enrich,
             selected_link=selected_link,
             status=DownloadStatus.PENDING,
             status_message="Waiting in queue",
@@ -225,9 +216,6 @@ class DownloadQueueManager(QObject):
         worker = GetComicsDownloadWorker(
             item.issue,
             item.dest_dir,
-            api_key=item.api_key,
-            cache_enabled=item.cache_enabled,
-            auto_enrich=item.auto_enrich,
             selected_link=item.selected_link,
         )
         self._active_worker = worker

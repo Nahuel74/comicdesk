@@ -4,6 +4,22 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.8.5] - 2026-09-20
+
+### Added
+
+- Acquire tab: **Open on GetComics** opens the issue post page in your browser (independent of the download-links table selection)
+
+### Removed
+
+- Automatic Comic Vine metadata enrichment after GetComics downloads; enrich manually from the Metadata tab
+- `auto_enrich_after_download` config key (legacy values in `config.json` are ignored)
+
+### Changed
+
+- Acquire: **Open provider in browser** applies only to a selected download-link row; disabled controls use muted button styling
+- README: CBR→CBZ on metadata save, recommended Comic Vine series-ID workflow, and Acquire browser controls
+
 ### Fixed
 
 - Metadata Comic Vine search with a pinned series ID retries volume-scoped issue listing when Comic Vine’s issue-number filter returns no rows (e.g. Mutopia X with a correct volume id)

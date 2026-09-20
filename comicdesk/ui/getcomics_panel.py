@@ -9,7 +9,6 @@ from PySide6.QtCore import Qt, Signal, QUrl
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -169,9 +168,6 @@ class GetComicsPanel(QWidget):
         self.dest_browse_button.clicked.connect(self._browse_dest_folder)
         dest_row.addWidget(self.dest_input, 1)
         dest_row.addWidget(self.dest_browse_button)
-        self.enrich_checkbox = QCheckBox("Auto-enrich comic archives after download")
-        self.enrich_checkbox.setChecked(self._auto_enrich_enabled())
-        dest_row.addWidget(self.enrich_checkbox)
         outer.addLayout(dest_row)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -220,6 +216,13 @@ class GetComicsPanel(QWidget):
         self.links_table.horizontalHeader().setStretchLastSection(True)
         self.links_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.links_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.links_table.itemSelectionChanged.connect(self._update_provider_browser_button)
+        self.links_table.currentCellChanged.connect(
+            lambda _r, _c, _pr, _pc: self._update_provider_browser_button()
+        )
+        self.links_table.cellClicked.connect(
+            lambda _r, _c: self._update_provider_browser_button()
+        )
         right_layout.addWidget(self.links_table, 1)
 
         action_row = QHBoxLayout()
@@ -227,10 +230,14 @@ class GetComicsPanel(QWidget):
         self.download_button = QPushButton("Download")
         self.download_button.clicked.connect(lambda: self._start_download())
         self.download_button.setEnabled(False)
-        self.browser_button = QPushButton("Open in browser")
-        self.browser_button.clicked.connect(self._open_selected_in_browser)
+        self.open_issue_button = QPushButton("Open on GetComics")
+        self.open_issue_button.clicked.connect(self._open_issue_on_getcomics)
+        self.open_issue_button.setEnabled(False)
+        self.browser_button = QPushButton("Open provider in browser")
+        self.browser_button.clicked.connect(self._open_provider_in_browser)
         self.browser_button.setEnabled(False)
         action_row.addWidget(self.download_button)
+        action_row.addWidget(self.open_issue_button)
         action_row.addWidget(self.browser_button)
         action_row.addStretch()
         right_layout.addLayout(action_row)
@@ -314,6 +321,7 @@ class GetComicsPanel(QWidget):
             self.next_page_button,
             self.dest_browse_button,
             self.download_button,
+            self.open_issue_button,
             self.browser_button,
             self.wishlist_search_button,
             self.wishlist_download_button,
@@ -341,16 +349,10 @@ class GetComicsPanel(QWidget):
             return folder
         return self.config.default_folder or ""
 
-    def _auto_enrich_enabled(self) -> bool:
-        if self.config is None:
-            return True
-        return bool(getattr(self.config, "auto_enrich_after_download", True))
-
     def set_config(self, config: Config):
         self.config = config
         if not self.dest_input.text().strip():
             self.dest_input.setText(self._default_download_folder())
-        self.enrich_checkbox.setChecked(self._auto_enrich_enabled())
 
     def _browse_dest_folder(self):
         folder = QFileDialog.getExistingDirectory(
@@ -452,7 +454,8 @@ class GetComicsPanel(QWidget):
         self._load_thumbnail(issue.thumbnail_url)
         self._populate_links_table(issue.download_links)
         self.download_button.setEnabled(True)
-        self.browser_button.setEnabled(True)
+        self.open_issue_button.setEnabled(bool(issue.url))
+        self._update_provider_browser_button()
         self.status_label.setText(f"{len(issue.download_links)} download link(s) found")
         logger.info(
             "getcomics_action_issue_loaded title=%s link_count=%d",
@@ -470,20 +473,37 @@ class GetComicsPanel(QWidget):
     def _populate_links_table(self, links: list[GetComicsDownloadLink]):
         self.links_table.setRowCount(len(links))
         for row, link in enumerate(links):
-            self.links_table.setItem(row, 0, QTableWidgetItem(link.provider))
-            self.links_table.setItem(row, 1, QTableWidgetItem(link.label))
+            provider_item = QTableWidgetItem(link.provider)
+            provider_item.setData(Qt.ItemDataRole.UserRole, link)
+            label_item = QTableWidgetItem(link.label)
+            label_item.setData(Qt.ItemDataRole.UserRole, link)
             auto_item = QTableWidgetItem("Yes" if link.is_auto_downloadable else "No")
             auto_item.setData(Qt.ItemDataRole.UserRole, link)
+            self.links_table.setItem(row, 0, provider_item)
+            self.links_table.setItem(row, 1, label_item)
             self.links_table.setItem(row, 2, auto_item)
+        self._update_provider_browser_button()
+
+    def _links_table_selected_row(self) -> int:
+        selection_model = self.links_table.selectionModel()
+        if selection_model is not None:
+            selected_rows = selection_model.selectedRows()
+            if selected_rows:
+                return selected_rows[0].row()
+        return self.links_table.currentRow()
 
     def _selected_link(self) -> GetComicsDownloadLink | None:
-        row = self.links_table.currentRow()
+        row = self._links_table_selected_row()
         if row < 0:
             return None
-        item = self.links_table.item(row, 2)
-        if item is None:
-            return None
-        return item.data(Qt.ItemDataRole.UserRole)
+        for column in (0, 1, 2):
+            item = self.links_table.item(row, column)
+            if item is None:
+                continue
+            link = item.data(Qt.ItemDataRole.UserRole)
+            if link is not None:
+                return link
+        return None
 
     def _dest_path(self) -> Path | None:
         folder = self.dest_input.text().strip()
@@ -505,30 +525,15 @@ class GetComicsPanel(QWidget):
         dest = self._dest_path()
         if dest is None:
             return
-        auto_enrich = self.enrich_checkbox.isChecked()
-        if auto_enrich:
-            from comicdesk.ui.api_key_prompt import has_api_key, warn_missing_api_key
-
-            if not has_api_key(self.config):
-                warn_missing_api_key(
-                    self, "Auto-enrich after download from Comic Vine"
-                )
-                auto_enrich = False
-        api_key = self.config.api_key if self.config else ""
-        cache_enabled = self.config.cache_enabled if self.config else True
         logger.info(
-            "getcomics_action_download issue=%s dest_dir=%s auto_enrich=%s selected_provider=%s",
+            "getcomics_action_download issue=%s dest_dir=%s selected_provider=%s",
             self._current_issue.url,
             dest,
-            auto_enrich,
             getattr(selected_link, "provider", None),
         )
         item_id = self._download_queue.enqueue(
             self._current_issue,
             dest,
-            api_key=api_key,
-            cache_enabled=cache_enabled,
-            auto_enrich=auto_enrich,
             selected_link=selected_link,
         )
         self._tracked_download_id = item_id
@@ -570,11 +575,27 @@ class GetComicsPanel(QWidget):
             self.status_message.emit("Manual provider selection required")
         self._tracked_download_id = None
 
-    def _open_selected_in_browser(self):
+    def _update_provider_browser_button(self) -> None:
+        enabled = self._selected_link() is not None
+        self.browser_button.setEnabled(enabled)
+        self.browser_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+            if enabled
+            else Qt.CursorShape.ArrowCursor
+        )
+
+    def _open_issue_on_getcomics(self) -> None:
+        if self._current_issue is None or not self._current_issue.url:
+            return
+        logger.info(
+            "getcomics_action_open_browser issue_url=%s",
+            self._current_issue.url,
+        )
+        QDesktopServices.openUrl(QUrl(self._current_issue.url))
+
+    def _open_provider_in_browser(self) -> None:
         link = self._selected_link()
         if link is None:
-            if self._current_issue is not None and self._current_issue.url:
-                QDesktopServices.openUrl(QUrl(self._current_issue.url))
             return
         answer = QMessageBox.question(
             self,
@@ -634,6 +655,7 @@ class GetComicsPanel(QWidget):
         self.thumbnail_label.clear()
         self.links_table.setRowCount(0)
         self.download_button.setEnabled(False)
+        self.open_issue_button.setEnabled(False)
         self.browser_button.setEnabled(False)
 
     def _set_busy(self, busy: bool, message: str = ""):
@@ -785,24 +807,7 @@ class GetComicsPanel(QWidget):
         dest = self._dest_path()
         if dest is None:
             return
-        auto_enrich = self.enrich_checkbox.isChecked()
-        if auto_enrich:
-            from comicdesk.ui.api_key_prompt import has_api_key, warn_missing_api_key
-
-            if not has_api_key(self.config):
-                warn_missing_api_key(
-                    self, "Auto-enrich after download from Comic Vine"
-                )
-                auto_enrich = False
-        api_key = self.config.api_key if self.config else ""
-        cache_enabled = self.config.cache_enabled if self.config else True
-        item_id = self._download_queue.enqueue(
-            issue,
-            dest,
-            api_key=api_key,
-            cache_enabled=cache_enabled,
-            auto_enrich=auto_enrich,
-        )
+        item_id = self._download_queue.enqueue(issue, dest)
         self._tracked_download_id = item_id
         self.progress_bar.setVisible(True)
         self.progress_bar.setValue(0)
@@ -820,7 +825,8 @@ class GetComicsPanel(QWidget):
         self.detail_excerpt.setText(issue.excerpt)
         self._populate_links_table(issue.download_links)
         self.download_button.setEnabled(True)
-        self.browser_button.setEnabled(True)
+        self.open_issue_button.setEnabled(bool(issue.url))
+        self._update_provider_browser_button()
         self._enqueue_wishlist_issue(book, issue)
 
     def _on_wishlist_download_error(self, book: CBLBook, message: str) -> None:

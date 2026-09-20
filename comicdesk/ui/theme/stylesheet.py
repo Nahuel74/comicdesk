@@ -379,6 +379,10 @@ def button_stylesheet(theme: str = "dark", variant: str = "default") -> str:
             }}
             QPushButton:hover {{ background-color: {c['border_strong']}; }}
             QPushButton:pressed {{ background-color: {c['border']}; }}
+            QPushButton:disabled {{
+                background-color: {c['disabled_bg']};
+                color: {c['disabled_text']};
+            }}
         """
     return f"""
         QPushButton {{
@@ -390,6 +394,10 @@ def button_stylesheet(theme: str = "dark", variant: str = "default") -> str:
         }}
         QPushButton:hover {{ background-color: {c['border_strong']}; }}
         QPushButton:pressed {{ background-color: {c['border']}; }}
+        QPushButton:disabled {{
+            background-color: {c['disabled_bg']};
+            color: {c['disabled_text']};
+        }}
     """
 
 

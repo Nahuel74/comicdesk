@@ -9,8 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from comicdesk.models import CBLBook, Comic
-from comicdesk.services.comic_archive import read_comic_metadata, write_comic_metadata
-from comicdesk.services.comicvine_api import ComicVineClient, ComicVineError
+from comicdesk.services.comic_archive import read_comic_metadata
 from comicdesk.services.getcomics import (
     CloudflareChallengeError,
     GetComicsClient,
@@ -23,7 +22,6 @@ from comicdesk.services.getcomics import (
     classify_link,
     pick_best_search_result,
 )
-from comicdesk.services.identification import apply_issue_to_comic, identify_comic
 from comicdesk.utils.filename_parser import parse_comic_filename
 
 logger = logging.getLogger(__name__)
@@ -64,29 +62,6 @@ def _build_comic_from_download(path: Path, issue: GetComicsIssue | None) -> Comi
         if issue.url and issue.url not in comic.web_links:
             comic.web_links.append(issue.url)
     return comic
-
-
-def _enrich_comic(
-    comic: Comic,
-    api_key: str,
-    cache_enabled: bool,
-) -> tuple[Comic, str]:
-    if not api_key:
-        return comic, "Download complete (no API key for enrichment)"
-    try:
-        client = ComicVineClient(api_key, cache_enabled=cache_enabled)
-        result = identify_comic(comic, client)
-        if result.is_exact and result.issue is not None:
-            apply_issue_to_comic(comic, result.issue, overwrite=True)
-            if comic.path.suffix.lower() in (".cbz", ".cbr"):
-                write_comic_metadata(comic)
-            return comic, "Download complete and metadata enriched from Comic Vine"
-        if result.candidates:
-            return comic, "Download complete; multiple Comic Vine matches — refine in Metadata tab"
-        return comic, "Download complete; no Comic Vine match found"
-    except ComicVineError as exc:
-        logger.warning("getcomics_enrich_failed error=%s", exc)
-        return comic, f"Download complete; Comic Vine enrichment failed: {exc}"
 
 
 class GetComicsSearchWorker(QThread):
@@ -227,17 +202,11 @@ class GetComicsDownloadWorker(QThread):
         issue: GetComicsIssue,
         dest_dir: Path,
         *,
-        api_key: str = "",
-        cache_enabled: bool = True,
-        auto_enrich: bool = True,
         selected_link: GetComicsDownloadLink | None = None,
     ):
         super().__init__()
         self.issue = issue
         self.dest_dir = Path(dest_dir)
-        self.api_key = str(api_key or "").strip()
-        self.cache_enabled = bool(cache_enabled)
-        self.auto_enrich = bool(auto_enrich)
         self.selected_link = selected_link
         self._cancelled = False
         self._last_progress_emit = 0.0
@@ -366,10 +335,9 @@ class GetComicsDownloadWorker(QThread):
             return
         started = time.monotonic()
         logger.info(
-            "getcomics_worker_download_started issue=%s dest_dir=%s auto_enrich=%s selected_provider=%s",
+            "getcomics_worker_download_started issue=%s dest_dir=%s selected_provider=%s",
             self.issue.url,
             self.dest_dir,
-            self.auto_enrich,
             getattr(self.selected_link, "provider", None),
         )
         try:
@@ -388,18 +356,6 @@ class GetComicsDownloadWorker(QThread):
                 return
             comic = _build_comic_from_download(path, self.issue)
             message = "Download complete"
-            if self.auto_enrich and path.suffix.lower() in (".cbz", ".cbr"):
-                enrich_started = time.monotonic()
-                self.progress.emit(90, 100, "Enriching metadata from Comic Vine...")
-                logger.info("getcomics_worker_enrich_started path=%s", path)
-                comic, message = _enrich_comic(comic, self.api_key, self.cache_enabled)
-                logger.info(
-                    "getcomics_worker_enrich_finished path=%s duration_ms=%d",
-                    comic.path,
-                    int((time.monotonic() - enrich_started) * 1000),
-                )
-            elif path.suffix.lower() not in (".cbz", ".cbr"):
-                message = "Download complete (metadata enrichment only supports comic archives)"
 
             if not self._cancelled:
                 logger.info(

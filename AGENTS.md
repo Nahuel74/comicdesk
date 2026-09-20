@@ -49,7 +49,6 @@ bash packaging/verify_build.sh
 | `cache_enabled` | bool | `True` |
 | `last_cbl_directory` | str | `""` |
 | `getcomics_download_folder` | str | `""` |
-| `auto_enrich_after_download` | bool | `True` |
 | `theme` | str | `"dark"` (`dark`, `light`, or `system`) |
 | `last_rename_template` | str | `""` |
 | `rename_issue_pad_width` | int | `0` — fallback leading zeros for `{Number}` when ComicInfo Count is empty |

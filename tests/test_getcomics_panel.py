@@ -7,6 +7,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import QItemSelectionModel, QUrl
 from PySide6.QtWidgets import QApplication
 
 from comicdesk.config import Config
@@ -27,6 +28,8 @@ def test_panel_smoke_offscreen(qapp):
     panel = GetComicsPanel(config=Config())
     assert panel.criterion_combo.count() == 3
     assert panel.download_button.isEnabled() is False
+    assert not hasattr(panel, "enrich_checkbox")
+    assert panel.open_issue_button.isEnabled() is False
     assert panel.wishlist_table.columnCount() == 4
     assert panel.wishlist_count_label.text() == "0 items"
     panel.shutdown_workers()
@@ -93,7 +96,52 @@ def test_start_download_enqueues_and_shows_progress(qapp, tmp_path):
         panel._start_download()
 
     enqueue.assert_called_once()
-    assert enqueue.call_args.kwargs["selected_link"] is None
+    assert enqueue.call_args.kwargs == {"selected_link": None}
     assert panel.progress_bar.isVisible()
     assert panel._tracked_download_id == "abc123"
+    panel.shutdown_workers()
+
+
+def test_open_on_getcomics_uses_issue_url_when_link_selected(qapp):
+    panel = GetComicsPanel(config=Config())
+    issue_url = "https://getcomics.org/comics/test/"
+    dls_url = "https://getcomics.org/dls/main/"
+    issue = GetComicsIssue(
+        title="Test",
+        url=issue_url,
+        download_links=[
+            GetComicsDownloadLink("MAIN SERVER", "MAIN SERVER", dls_url),
+        ],
+    )
+    panel._current_issue = issue
+    panel._populate_links_table(issue.download_links)
+    panel.links_table.selectRow(0)
+    panel.open_issue_button.setEnabled(True)
+
+    with patch("comicdesk.ui.getcomics_panel.QDesktopServices.openUrl") as open_url:
+        panel._open_issue_on_getcomics()
+
+    open_url.assert_called_once()
+    assert open_url.call_args[0][0] == QUrl(issue_url)
+    panel.shutdown_workers()
+
+
+def test_provider_browser_button_with_row_selection_only(qapp):
+    panel = GetComicsPanel(config=Config())
+    issue = GetComicsIssue(
+        title="Test",
+        url="https://getcomics.org/comics/test/",
+        download_links=[
+            GetComicsDownloadLink("MAIN SERVER", "MAIN SERVER", "https://getcomics.org/dls/main/"),
+        ],
+    )
+    panel._populate_links_table(issue.download_links)
+    selection_model = panel.links_table.selectionModel()
+    selection_model.select(
+        panel.links_table.model().index(0, 0),
+        QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+    )
+    assert panel.links_table.currentRow() < 0
+    assert panel._selected_link() is not None
+    assert panel.browser_button.isEnabled()
     panel.shutdown_workers()

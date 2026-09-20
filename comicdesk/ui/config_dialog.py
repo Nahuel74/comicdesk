@@ -108,12 +108,6 @@ class ConfigDialog(QDialog):
         getcomics_folder_layout.addWidget(self.getcomics_folder_btn)
         form.addRow(getcomics_folder_label, getcomics_folder_layout)
 
-        self.auto_enrich_checkbox = QCheckBox("Auto-enrich GetComics downloads from Comic Vine")
-        self.auto_enrich_checkbox.setChecked(
-            getattr(self.config, "auto_enrich_after_download", True)
-        )
-        form.addRow("", self.auto_enrich_checkbox)
-
         layout.addLayout(form)
 
         btn_layout = QHBoxLayout()
@@ -210,6 +204,5 @@ class ConfigDialog(QDialog):
             cache_enabled=self.cache_checkbox.isChecked(),
             last_cbl_directory=self.config.last_cbl_directory,
             getcomics_download_folder=self.getcomics_folder_input.text().strip(),
-            auto_enrich_after_download=self.auto_enrich_checkbox.isChecked(),
             theme=normalize_theme(self.theme_combo.currentData()),
         )
