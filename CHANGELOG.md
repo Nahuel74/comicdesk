@@ -4,6 +4,8 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.8.6] - 2026-09-20
+
 ### Added
 
 - Metadata tab: numpad and main-digit **1–4** shortcuts for Comic Vine Search, Apply, Discard draft, and Save; action buttons show matching step numbers (**3.** Discard, **4.** Save)
