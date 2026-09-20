@@ -4,6 +4,12 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.8.8] - 2026-09-20
+
+### Fixed
+
+- Metadata tab and reading-list metadata search no longer crash when switching comics or clearing proposals while Comic Vine cover thumbnails are still loading (`QThread` destroyed while still running)
+
 ## [1.8.7] - 2026-09-20
 
 ### Fixed
