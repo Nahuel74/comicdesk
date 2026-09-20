@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import (
-    QDir, QModelIndex, QSortFilterProxyModel, QThread, QTimer, Qt, QUrl,
+    QDir, QModelIndex, QSortFilterProxyModel, QTimer, Qt, QUrl,
     Signal,
 )
 from PySide6.QtGui import QDesktopServices, QFontMetrics
@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QToolButton, QTreeView, QVBoxLayout, QWidget,
 )
 
-from comicdesk.services.comic_archive import iter_comic_files, read_comic_metadata
 from comicdesk.ui.theme import (
     button_stylesheet,
     colors_for,
@@ -29,30 +28,6 @@ class _FolderSortProxy(QSortFilterProxyModel):
         data_left = self.sourceModel().data(source_left, Qt.DisplayRole)
         data_right = self.sourceModel().data(source_right, Qt.DisplayRole)
         return str(data_left).lower() < str(data_right).lower()
-
-
-class ScanWorker(QThread):
-    """Worker thread for folder scanning."""
-    finished = Signal(list)
-    progress = Signal(str)
-
-    def __init__(self, path: Path, recursive: bool = True):
-        super().__init__()
-        self.path = path
-        self.recursive = recursive
-        self._cancelled = False
-
-    def run(self):
-        comics = []
-        for comic_file in iter_comic_files(self.path, self.recursive):
-            if self._cancelled:
-                break
-            self.progress.emit(str(comic_file.name))
-            comics.append(read_comic_metadata(comic_file))
-        self.finished.emit(comics)
-
-    def cancel(self):
-        self._cancelled = True
 
 
 class FolderPanel(QWidget):

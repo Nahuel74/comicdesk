@@ -7,7 +7,7 @@ from pathlib import Path
 from comicdesk.models import Comic
 from comicdesk.services.cbr_backend import CbrReadError, comicinfo_member_name, open_cbr
 from comicdesk.services.cbz_reader import read_cbz_metadata
-from comicdesk.services.cbz_writer import is_zip_comic_archive
+from comicdesk.services.cbz_writer import looks_like_zip_archive
 from comicdesk.services.comicinfo import parse_comicinfo
 from comicdesk.utils.filename_parser import parse_comic_filename
 
@@ -15,7 +15,7 @@ from comicdesk.utils.filename_parser import parse_comic_filename
 def read_cbr_metadata(cbr_path: Path) -> Comic:
     """Read ComicInfo from a CBR when possible; always returns a Comic for the path."""
     cbr_path = Path(cbr_path)
-    if is_zip_comic_archive(cbr_path):
+    if looks_like_zip_archive(cbr_path):
         return _apply_filename_heuristics(read_cbz_metadata(cbr_path))
 
     comic = Comic(path=cbr_path)

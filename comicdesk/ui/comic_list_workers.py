@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6.QtCore import QThread, Signal
 
 from comicdesk.models import Comic
-from comicdesk.services.comic_archive import iter_comic_files, read_comic_metadata
+from comicdesk.services.comic_archive import scan_comics
 from comicdesk.utils.rename_template import RenamePlanRow, RenameRowStatus
 
 
@@ -85,7 +85,7 @@ class RenameWorker(QThread):
 
 class ScanWorker(QThread):
     finished = Signal(list)
-    progress = Signal(str)
+    progress = Signal(int, int, str)
     error = Signal(str)
 
     def __init__(self, path: Path, recursive=True):
@@ -93,15 +93,13 @@ class ScanWorker(QThread):
         self.path, self.recursive, self._cancelled = path, recursive, False
 
     def run(self):
-        comics = []
-        for comic_file in iter_comic_files(self.path, self.recursive):
-            if self._cancelled:
-                break
-            self.progress.emit(str(comic_file.name))
-            try:
-                comics.append(read_comic_metadata(comic_file))
-            except Exception as exc:
-                self.error.emit(f"Unable to read {comic_file.name}: {exc}")
+        comics = scan_comics(
+            self.path,
+            self.recursive,
+            progress=lambda current, total, name: self.progress.emit(current, total, name),
+            on_error=self.error.emit,
+            cancelled=lambda: self._cancelled,
+        )
         self.finished.emit(comics)
 
     def cancel(self):

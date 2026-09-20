@@ -13,6 +13,7 @@ from comicdesk.models import Comic
 from comicdesk.services.comicinfo import comic_to_element, local_name
 
 COMICINFO_NAME = "ComicInfo.xml"
+_ZIP_LOCAL_HEADER = b"PK\x03\x04"
 
 
 class CbzWriteError(Exception):
@@ -47,14 +48,25 @@ def write_cbz_metadata(comic: Comic) -> Path:
     return cbz_path
 
 
-def is_zip_comic_archive(path: Path) -> bool:
-    """True when *path* is a readable ZIP archive (e.g. misnamed .cbr CBZ)."""
+def looks_like_zip_archive(path: Path) -> bool:
+    """True when *path* begins with a ZIP local file header."""
     path = Path(path)
     if not path.is_file():
         return False
     try:
-        with zipfile.ZipFile(path, "r") as archive:
-            archive.namelist()
+        with open(path, "rb") as handle:
+            return handle.read(4) == _ZIP_LOCAL_HEADER
+    except OSError:
+        return False
+
+
+def is_zip_comic_archive(path: Path) -> bool:
+    """True when *path* is a readable ZIP archive (e.g. misnamed .cbr CBZ)."""
+    if not looks_like_zip_archive(path):
+        return False
+    try:
+        with zipfile.ZipFile(path, "r"):
+            pass
         return True
     except (zipfile.BadZipFile, OSError):
         return False

@@ -5,9 +5,8 @@ from pathlib import Path
 from PySide6.QtCore import QItemSelection, QItemSelectionModel, Signal, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QHeaderView, QLabel, QMenu, QPushButton, QTableView,
-    QHBoxLayout, QMessageBox,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QDialog, QHeaderView, QLabel, QMenu, QProgressBar, QPushButton,
+    QTableView, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget,
 )
 
 from comicdesk.models import Comic
@@ -102,6 +101,11 @@ class ComicList(QWidget):
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
         layout.addWidget(self.table)
+        self.scan_progress = QProgressBar()
+        self.scan_progress.setFixedHeight(8)
+        self.scan_progress.setTextVisible(False)
+        self.scan_progress.hide()
+        layout.addWidget(self.scan_progress)
         self.status_label = QLabel("No comics loaded")
         layout.addWidget(self.status_label)
         self.apply_theme(self._theme)
@@ -120,11 +124,14 @@ class ComicList(QWidget):
     def load_folder(self, path: Path):
         self.current_folder = path
         self._stop_scan_worker()
-        self.status_label.setText("Scanning...")
+        self._set_scan_busy(True)
+        self.status_label.setText("Loading library…")
         self.worker = ScanWorker(path)
         worker = self.worker
         self._scan_finished_handler = lambda comics: self._on_scan_complete(comics, worker)
-        self._scan_progress_handler = lambda name: self._on_scan_progress(name, worker)
+        self._scan_progress_handler = (
+            lambda current, total, name: self._on_scan_progress(current, total, name, worker)
+        )
         worker.finished.connect(self._scan_finished_handler)
         worker.progress.connect(self._scan_progress_handler)
         worker.error.connect(lambda message, w=worker: self._on_scan_error(message, w))
@@ -132,6 +139,7 @@ class ComicList(QWidget):
 
     def _stop_scan_worker(self):
         """Cancel and reap a previous scan before starting another one."""
+        was_busy = getattr(self, "worker", None) is not None
         worker = getattr(self, "worker", None)
         if worker is None:
             return
@@ -154,6 +162,8 @@ class ComicList(QWidget):
         self.worker = None
         self._scan_finished_handler = None
         self._scan_progress_handler = None
+        if was_busy:
+            self._set_scan_busy(False)
 
     def _stop_rename_worker(self):
         worker = getattr(self, "rename_worker", None)
@@ -170,13 +180,35 @@ class ComicList(QWidget):
         self._stop_scan_worker()
         self._stop_rename_worker()
 
-    def _on_scan_progress(self, name, worker):
-        if worker is self.worker:
-            self.status_label.setText(f"Scanning: {name}")
+    def _set_scan_busy(self, busy: bool) -> None:
+        self.scan_progress.setVisible(busy)
+        if busy:
+            self.scan_progress.setRange(0, 0)
+            self.scan_progress.setValue(0)
+        else:
+            self.scan_progress.setRange(0, 100)
+            self.scan_progress.setValue(0)
+        self.table.setEnabled(not busy)
+        self.rename_btn.setEnabled(not busy and bool(self.comics))
+        self.toolbar.setEnabled(not busy)
+
+    def _on_scan_progress(self, current, total, name, worker):
+        if worker is not self.worker:
+            return
+        if total > 0:
+            self.scan_progress.setRange(0, total)
+            self.scan_progress.setValue(current)
+        if current <= 0:
+            self.status_label.setText("Loading library…")
+        elif name:
+            self.status_label.setText(f"Loading library… ({current}/{total}) — {name}")
+        else:
+            self.status_label.setText(f"Loading library… ({current}/{total})")
 
     def _on_scan_complete(self, comics: list[Comic], worker=None):
         if worker is not None and worker is not self.worker:
             return
+        self._set_scan_busy(False)
         self.comics = comics
         self._set_comics(comics)
         self.set_reading_list(self.reading_list)

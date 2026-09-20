@@ -189,7 +189,7 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage("Settings saved")
 
     def _on_folder_selected(self, path):
-        self.statusbar.showMessage(f"Scanning: {path}...")
+        self.statusbar.showMessage(f"Loading library: {path}…")
         self.comic_list.load_folder(path)
 
     def _on_comics_selected(self, comics):

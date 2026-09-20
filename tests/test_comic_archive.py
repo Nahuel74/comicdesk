@@ -16,7 +16,14 @@ from comicdesk.services.cbz_writer import CbzWriteError
 from comicdesk.services.comic_archive import (
     iter_comic_files,
     read_comic_metadata,
+    scan_comics,
     write_comic_metadata,
+)
+from comicdesk.services.scan_metadata_cache import (
+    flush_scan_metadata_cache,
+    get_cached_comic,
+    reset_scan_metadata_cache_for_tests,
+    store_cached_comic,
 )
 
 SAMPLE_XML = b"""<?xml version="1.0" encoding="utf-8"?>
@@ -30,8 +37,10 @@ SAMPLE_XML = b"""<?xml version="1.0" encoding="utf-8"?>
 
 @pytest.fixture(autouse=True)
 def _reset_cbr_backend():
+    reset_scan_metadata_cache_for_tests()
     yield
     reset_cbr_opener_for_tests()
+    reset_scan_metadata_cache_for_tests()
 
 
 def _write_zip_cbr(path, members: dict[str, bytes]) -> None:
@@ -211,3 +220,68 @@ def test_cbr_conversion_replace_failure_keeps_cbr(tmp_path, monkeypatch):
         write_comic_metadata(Comic(path=cbr, title="T"))
     assert cbr.read_bytes() == before
     assert not (tmp_path / "book.cbz").exists()
+
+
+def _comic_signature(comic: Comic) -> tuple:
+    return (
+        comic.path.name,
+        comic.series_name,
+        comic.issue_number,
+        comic.year,
+        comic.cv_series_id,
+        comic.cv_issue_id,
+    )
+
+
+def test_scan_comics_parallel_matches_sequential(tmp_path):
+    for index in range(6):
+        cbz = tmp_path / f"vol-{index}.cbz"
+        with zipfile.ZipFile(cbz, "w") as archive:
+            archive.writestr("ComicInfo.xml", SAMPLE_XML)
+
+    sequential = scan_comics(tmp_path, max_workers=1)
+    reset_scan_metadata_cache_for_tests()
+    parallel = scan_comics(tmp_path)
+
+    assert [_comic_signature(c) for c in sequential] == [
+        _comic_signature(c) for c in parallel
+    ]
+
+
+def test_scan_metadata_cache_serializes_unknown_comicinfo_elements(tmp_path):
+    import xml.etree.ElementTree as ET
+
+    from comicdesk.services.scan_metadata_cache import (
+        _comic_from_payload,
+        _comic_to_payload,
+    )
+
+    cbz = tmp_path / "one.cbz"
+    with zipfile.ZipFile(cbz, "w") as archive:
+        archive.writestr("ComicInfo.xml", SAMPLE_XML)
+    comic = read_comic_metadata(cbz)
+    extra = ET.Element("CustomTag")
+    extra.text = "value"
+    comic.comicinfo_unknown.append(extra)
+    payload = _comic_to_payload(comic)
+    roundtrip = _comic_from_payload(cbz, payload)
+    assert len(roundtrip.comicinfo_unknown) == 1
+    assert ET.tostring(roundtrip.comicinfo_unknown[0], encoding="unicode") == (
+        ET.tostring(extra, encoding="unicode")
+    )
+    store_cached_comic(cbz, comic)
+    flush_scan_metadata_cache()
+
+
+def test_scan_metadata_cache_hit_until_mtime_changes(tmp_path):
+    cbz = tmp_path / "one.cbz"
+    with zipfile.ZipFile(cbz, "w") as archive:
+        archive.writestr("ComicInfo.xml", SAMPLE_XML)
+
+    first = read_comic_metadata(cbz)
+    cached = get_cached_comic(cbz)
+    assert cached is not None
+    assert cached.series_name == first.series_name
+
+    cbz.write_bytes(cbz.read_bytes() + b" ")
+    assert get_cached_comic(cbz) is None

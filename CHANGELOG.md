@@ -4,6 +4,22 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.8.9] - 2026-09-20
+
+### Added
+
+- Library folder scan: parallel metadata reads for large folders, persistent mtime/size metadata cache (`~/.config/comicdesk/cache/scan_metadata.json`), and opt-in benchmark (`COMICDESK_BENCH=1`)
+- Library UI: progress bar and **Loading library…** status with file counts while a folder is scanned
+
+### Changed
+
+- Library scan enumerates comic files in a single directory walk, reads CBZ `ComicInfo.xml` with a faster lookup path, and avoids opening misnamed ZIP `.cbr` files twice
+- Removed unused duplicate `ScanWorker` from the folder sidebar (scanning uses the library worker only)
+
+### Fixed
+
+- Scan metadata cache no longer crashes when persisting comics whose ComicInfo includes custom XML elements (`comicinfo_unknown`)
+
 ## [1.8.8] - 2026-09-20
 
 ### Fixed
