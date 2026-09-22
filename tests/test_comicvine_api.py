@@ -121,6 +121,15 @@ class TestComicVineClient:
             },
         }
         volume_response = MagicMock()
+        publisher_response = MagicMock()
+        publisher_response.json.return_value = {
+            "status_code": 1,
+            "results": {
+                "id": 31,
+                "name": "Marvel",
+                "aliases": "Marvel Comics Group\nMarvel Entertainment",
+            },
+        }
         volume_response.json.return_value = {
             "status_code": 1,
             "results": {
@@ -128,20 +137,25 @@ class TestComicVineClient:
                 "name": "The Pulse",
                 "start_year": 2004,
                 "count_of_issues": 11,
+                "publisher": {"id": 31, "name": "Marvel"},
                 "site_detail_url": "https://comicvine.gamespot.com/the-pulse/4050-11310/",
             },
         }
         issue_response.raise_for_status = MagicMock()
         volume_response.raise_for_status = MagicMock()
+        publisher_response.raise_for_status = MagicMock()
         mock_get = mock_client_cls.return_value.__enter__.return_value.get
-        mock_get.side_effect = [issue_response, volume_response]
+        mock_get.side_effect = [issue_response, volume_response, publisher_response]
 
         parsed = client.get_issue("105810")
 
         assert parsed.volume_start_year == "2004"
         assert parsed.volume == "2004"
         assert parsed.volume_count_of_issues == "11"
-        assert mock_get.call_count == 2
+        assert parsed.publisher == "Marvel"
+        assert parsed.imprint == "Marvel Comics Group"
+        assert parsed.genres == []
+        assert mock_get.call_count == 3
 
     @patch("comicdesk.services.comicvine_api.httpx.Client")
     def test_request_omits_custom_accept_encoding(self, mock_client_cls, client):

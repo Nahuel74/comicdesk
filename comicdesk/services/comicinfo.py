@@ -59,6 +59,53 @@ CV_ID_FIELD_TAGS: tuple[tuple[str, str], ...] = (
 )
 KNOWN_TAGS = {tag.casefold() for tag, _ in FIELD_TAGS + CV_ID_FIELD_TAGS}
 
+# Human-readable Metadata labels (spaced title case from ComicInfo PascalCase tags).
+_COMICINFO_TAG_LABELS: dict[str, str] = {
+    "LanguageISO": "Language ISO",
+    "BlackAndWhite": "Black and White",
+    "MainCharacterOrTeam": "Main Character or Team",
+    "SeriesGroup": "Series Group",
+    "AgeRating": "Age Rating",
+    "CommunityRating": "Community Rating",
+    "CoverArtist": "Cover Artist",
+    "StoryArc": "Story Arc",
+    "StoryArcNumber": "Story Arc Number",
+    "AlternateSeries": "Alternate Series",
+    "AlternateNumber": "Alternate Number",
+    "AlternateCount": "Alternate Count",
+    "PageCount": "Page Count",
+    "ScanInformation": "Scan Information",
+    "GTIN": "GTIN",
+}
+_FIELD_NAME_LABELS: dict[str, str] = {
+    "cv_series_id": "Series ID",
+    "cv_issue_id": "Issue ID",
+    "series_name": "Series",
+    "issue_number": "Number",
+    "web_links": "Web",
+}
+
+
+def comicinfo_tag_display_label(tag: str) -> str:
+    """Turn a ComicInfo XML tag into a spaced label (e.g. CoverArtist → Cover Artist)."""
+    text = (tag or "").strip()
+    if not text:
+        return ""
+    if text in _COMICINFO_TAG_LABELS:
+        return _COMICINFO_TAG_LABELS[text]
+    spaced = re.sub(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", text)
+    return spaced.strip()
+
+
+def metadata_field_display_label(field_name: str) -> str:
+    """Label for a Comic model field in the Metadata form."""
+    if field_name in _FIELD_NAME_LABELS:
+        return _FIELD_NAME_LABELS[field_name]
+    for tag, name in FIELD_TAGS:
+        if name == field_name:
+            return comicinfo_tag_display_label(tag)
+    return comicinfo_tag_display_label(field_name.replace("_", " ").title().replace(" ", ""))
+
 
 def parse_comicinfo(data: bytes | str, path: Path) -> Comic:
     """Parse a ComicInfo document into a Comic.
@@ -139,6 +186,23 @@ def local_name(tag: str) -> str:
 def namespace_uri(tag: str) -> str:
     """Return the namespace URI embedded in an ElementTree qualified name."""
     return tag[1:].split("}", 1)[0] if tag.startswith("{") else ""
+
+
+# ComicInfo list fields edited as comma-separated text in the Metadata UI.
+COMMA_SEPARATED_FIELDS = frozenset({
+    "writer", "penciller", "inker", "colorist", "letterer", "cover_artist",
+    "editor", "translator", "genre", "tags", "characters", "teams", "locations",
+    "story_arc",
+})
+
+
+def format_comma_separated(text: str) -> str:
+    """Normalize comma/semicolon lists to ', ' separated tokens for display."""
+    if not text:
+        return ""
+    parts = re.split(r"[,;]+", str(text))
+    cleaned = [part.strip() for part in parts if part.strip()]
+    return ", ".join(cleaned)
 
 
 def split_web_links(value: str) -> list[str]:

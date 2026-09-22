@@ -27,7 +27,12 @@ from PySide6.QtWidgets import (
 )
 from comicdesk.ui.metadata_instance_model import MetadataInstanceModel
 from comicdesk.models import Comic, ComicVineVolume
-from comicdesk.services.comicinfo import FIELD_TAGS, join_web_links
+from comicdesk.services.comicinfo import (
+    COMMA_SEPARATED_FIELDS,
+    format_comma_separated,
+    join_web_links,
+    metadata_field_display_label,
+)
 from comicdesk.services.identification import STATUS_CANDIDATES, STATUS_EMPTY
 from comicdesk.services.identification import issue_needs_hydrate, issue_needs_volume_resolve
 from comicdesk.services.metadata_session import MetadataSession, BATCH_SERIES_FIELDS
@@ -47,11 +52,10 @@ from comicdesk.ui.theme import (
     metadata_panel_stylesheet,
     muted_label_stylesheet,
 )
-MULTILINE_FIELDS = {"summary", "notes", "review"}
-ID_FIELDS = (("Series ID", "cv_series_id"), ("Issue ID", "cv_issue_id"))
+MULTILINE_FIELDS = {"summary", "notes"}
 CHANGED_PROPERTY = "metadataChanged"
 WORKER_JOIN_TIMEOUT_MS = 5000
-FIELD_LABELS = {name: label for label, name in FIELD_TAGS}
+# Fields shown in Metadata map to Comic Vine issue/volume API data (plus ComicDesk CV ids).
 METADATA_GROUPS = (
     ("Identifiers", ("cv_series_id", "cv_issue_id")),
     (
@@ -62,15 +66,12 @@ METADATA_GROUPS = (
             "issue_number",
             "volume",
             "count",
-            "alternate_series",
-            "alternate_number",
-            "alternate_count",
             "year",
             "month",
             "day",
         ),
     ),
-    ("Story", ("story_arc", "story_arc_number", "summary", "notes", "review")),
+    ("Story", ("story_arc", "summary", "notes")),
     (
         "Credits",
         (
@@ -84,27 +85,9 @@ METADATA_GROUPS = (
             "translator",
         ),
     ),
-    (
-        "Classification",
-        (
-            "publisher",
-            "imprint",
-            "genre",
-            "tags",
-            "page_count",
-            "language_iso",
-            "format",
-            "black_and_white",
-            "manga",
-            "age_rating",
-            "community_rating",
-        ),
-    ),
-    (
-        "Universe",
-        ("characters", "teams", "locations", "main_character_or_team", "series_group"),
-    ),
-    ("Other", ("scan_information", "gtin", "web_links")),
+    ("Classification", ("publisher", "imprint", "genre", "tags", "age_rating")),
+    ("Universe", ("characters", "teams", "locations")),
+    ("Links", ("web_links",)),
 )
 logger = logging.getLogger(__name__)
 
@@ -226,10 +209,7 @@ class CbzMetadataPanel(QWidget):
             )
             group_form.setSpacing(SPACING["sm"])
             for name in field_names:
-                if name in ("cv_series_id", "cv_issue_id"):
-                    label = next(lbl for lbl, fld in ID_FIELDS if fld == name)
-                else:
-                    label = FIELD_LABELS.get(name, name)
+                label = metadata_field_display_label(name)
                 self._add_input(label, name, group_form)
             host_layout.addWidget(group)
         self.scroll.setWidget(host)
@@ -254,14 +234,8 @@ class CbzMetadataPanel(QWidget):
         )
         batch_form.setHorizontalSpacing(SPACING["md"])
         batch_form.setVerticalSpacing(SPACING["sm"])
-        batch_field_labels = {
-            "cv_series_id": "Series ID",
-            "series_name": FIELD_LABELS.get("series_name", "Series"),
-            "volume": FIELD_LABELS.get("volume", "Volume"),
-            "publisher": FIELD_LABELS.get("publisher", "Publisher"),
-        }
         for name in BATCH_SERIES_FIELDS:
-            label = batch_field_labels.get(name, name)
+            label = metadata_field_display_label(name)
             widget = QLineEdit()
             self.batch_inputs[name] = widget
             batch_form.addRow(QLabel(label), widget)
@@ -863,7 +837,10 @@ class CbzMetadataPanel(QWidget):
             values = self.session.values() if self.session else {}
             for name, widget in self.inputs.items():
                 value = values.get(name, "")
-                value = join_web_links(value) if name == "web_links" else value
+                if name == "web_links":
+                    value = join_web_links(value)
+                elif name in COMMA_SEPARATED_FIELDS:
+                    value = format_comma_separated(str(value or ""))
                 if isinstance(widget, QTextEdit): widget.setPlainText(str(value or ""))
                 else: widget.setText(str(value or ""))
         finally:

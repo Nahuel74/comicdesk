@@ -26,18 +26,33 @@ def credits_by_role(credits) -> dict[str, list[str]]:
     aliases = {
         "writer": "writer", "writers": "writer", "penciller": "penciller",
         "penciler": "penciller", "inker": "inker", "colorist": "colorist",
-        "letterer": "letterer", "cover artist": "cover_artist",
+        "letterer": "letterer", "cover": "cover_artist", "cover artist": "cover_artist",
         "cover_artist": "cover_artist", "editor": "editor", "translator": "translator",
     }
     for credit in credits or []:
         if not isinstance(credit, dict):
             continue
         name = str(credit.get("name") or credit.get("person", {}).get("name", "")).strip()
-        role = str(credit.get("role") or credit.get("credit") or "").casefold().strip()
-        target = aliases.get(role)
-        if name and target and name not in roles[target]:
-            roles[target].append(name)
+        if not name:
+            continue
+        role_text = str(credit.get("role") or credit.get("credit") or "").casefold().strip()
+        for token in re.split(r"[,;]+", role_text):
+            token = token.strip()
+            if not token:
+                continue
+            target = aliases.get(token)
+            if target and name not in roles[target]:
+                roles[target].append(name)
     return roles
+
+
+def _format_list_fields(values: dict[str, str]) -> dict[str, str]:
+    from comicdesk.services.comicinfo import COMMA_SEPARATED_FIELDS, format_comma_separated
+
+    return {
+        key: format_comma_separated(value) if key in COMMA_SEPARATED_FIELDS else value
+        for key, value in values.items()
+    }
 
 
 def apply_issue_metadata(comic: Comic, issue: ComicVineIssue, *, overwrite=False) -> None:
@@ -56,9 +71,16 @@ def apply_issue_metadata(comic: Comic, issue: ComicVineIssue, *, overwrite=False
         "age_rating": issue.age_rating,
     }
     values.update({field: ", ".join(names) for field, names in credits_by_role(issue.person_credits).items()})
-    _fill_fields(comic, values, overwrite)
+    _fill_fields(comic, _format_list_fields(values), overwrite)
     if issue.concept_credits:
-        _set_field(comic, "tags", ", ".join(issue.concept_credits), overwrite)
+        from comicdesk.services.comicinfo import format_comma_separated
+
+        _set_field(
+            comic,
+            "tags",
+            format_comma_separated(", ".join(issue.concept_credits)),
+            overwrite,
+        )
     if issue.volume_count_of_issues:
         _set_field(comic, "count", issue.volume_count_of_issues, overwrite)
 

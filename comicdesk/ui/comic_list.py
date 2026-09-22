@@ -1,5 +1,6 @@
 """Comic list panel with search, filtering, and library actions."""
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelection, QItemSelectionModel, Signal, Qt
@@ -11,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from comicdesk.models import Comic
 from comicdesk.ui.comic_list_toolbar import ComicListToolbar
-from comicdesk.ui.comic_list_workers import RenameWorker, ScanWorker
+from comicdesk.ui.comic_list_workers import FolderRenameWorker, RenameWorker, ScanWorker
 from comicdesk.ui.rename_files_dialog import RenameFilesDialog
 from comicdesk.ui.comic_table_model import ComicFilterProxyModel, ComicTableModel
 from comicdesk.ui.comic_selection import ComicSelection
@@ -50,6 +51,7 @@ class ComicList(QWidget):
     comics_changed = Signal(list)
     scan_completed = Signal(list)
     files_renamed = Signal(list)
+    library_root_renamed = Signal(object, object)
 
     def __init__(self, config=None):
         super().__init__()
@@ -92,7 +94,14 @@ class ComicList(QWidget):
         )
         self.rename_btn.setEnabled(False)
         self.rename_btn.clicked.connect(self._on_rename_files)
+        self.rename_folders_btn = QPushButton("Rename folders…")
+        self.rename_folders_btn.setToolTip(
+            "Rename series folders using a metadata template (or all comics if none selected)"
+        )
+        self.rename_folders_btn.setEnabled(False)
+        self.rename_folders_btn.clicked.connect(self._on_rename_folders)
         self.action_bar.add_action(self.rename_btn, "Rename files")
+        self.action_bar.add_action(self.rename_folders_btn, "Rename folders")
         self.action_bar.add_action(self.add_selected_btn, "Add to reading list")
         self.action_bar.add_action(self.clear_selection_btn, "Clear selection")
         actions_layout.addWidget(self.action_bar, 1)
@@ -114,6 +123,7 @@ class ComicList(QWidget):
         """Re-apply visual tokens for the active theme."""
         self._theme = theme
         self.rename_btn.setStyleSheet(button_stylesheet(theme, "default"))
+        self.rename_folders_btn.setStyleSheet(button_stylesheet(theme, "default"))
         self.table.setStyleSheet(table_stylesheet(theme))
         self.status_label.setStyleSheet(
             muted_label_stylesheet(theme) + " padding: 8px 12px;"
@@ -175,10 +185,21 @@ class ComicList(QWidget):
         worker.deleteLater()
         self.rename_worker = None
 
+    def _stop_folder_rename_worker(self):
+        worker = getattr(self, "folder_rename_worker", None)
+        if worker is None:
+            return
+        worker.cancel()
+        if worker.isRunning():
+            worker.wait()
+        worker.deleteLater()
+        self.folder_rename_worker = None
+
     def shutdown_workers(self):
         """Synchronously stop every worker owned by this panel."""
         self._stop_scan_worker()
         self._stop_rename_worker()
+        self._stop_folder_rename_worker()
 
     def _set_scan_busy(self, busy: bool) -> None:
         self.scan_progress.setVisible(busy)
@@ -190,6 +211,9 @@ class ComicList(QWidget):
             self.scan_progress.setValue(0)
         self.table.setEnabled(not busy)
         self.rename_btn.setEnabled(not busy and bool(self.comics))
+        self.rename_folders_btn.setEnabled(
+            not busy and bool(self.comics) and self.current_folder is not None
+        )
         self.toolbar.setEnabled(not busy)
 
     def _on_scan_progress(self, current, total, name, worker):
@@ -234,6 +258,9 @@ class ComicList(QWidget):
     def _update_rename_enabled(self):
         has_local = any(comic.has_local_file for comic in self.comics)
         self.rename_btn.setEnabled(has_local)
+        self.rename_folders_btn.setEnabled(
+            has_local and self.current_folder is not None
+        )
 
     def _emit_focus(self):
         self.comic_focused.emit(self._current_comic())
@@ -287,6 +314,7 @@ class ComicList(QWidget):
             menu.addAction("➕ Add to Reading List", self._add_to_list)
             menu.addSeparator()
             menu.addAction("Rename files…", self._on_rename_files)
+            menu.addAction("Rename folders…", self._on_rename_folders)
             menu.addAction("Edit metadata", self._request_edit)
         menu.addAction("🌐 Open CV URL", lambda: self._open_cv_url(clicked_index))
         menu.exec(self.table.viewport().mapToGlobal(position))
@@ -377,6 +405,109 @@ class ComicList(QWidget):
         self.rename_worker.finished.connect(self._on_rename_complete)
         self.rename_worker.start()
 
+    def _remap_comic_paths_under_folder(
+        self, old_folder: Path, new_folder: Path
+    ) -> dict[str, str]:
+        prefix_old = str(old_folder.resolve())
+        prefix_new = str(new_folder.resolve())
+        mapping: dict[str, str] = {}
+        for comic in self.comics:
+            path_str = str(comic.path.resolve())
+            if path_str == prefix_old or path_str.startswith(prefix_old + os.sep):
+                suffix = path_str[len(prefix_old) :]
+                new_path = Path(prefix_new + suffix)
+                mapping[str(comic.path)] = str(new_path)
+                comic.path = new_path
+        return mapping
+
+    def _on_rename_folders(self):
+        if self.current_folder is None:
+            QMessageBox.information(
+                self,
+                "Rename folders",
+                "Open a library folder before renaming series folders.",
+            )
+            return
+        targets = self._rename_targets()
+        if not targets:
+            QMessageBox.information(
+                self,
+                "Rename folders",
+                "No local comic files to rename in the current selection or folder.",
+            )
+            return
+        dialog = RenameFilesDialog(
+            targets,
+            config=self.config,
+            target_count=len(targets),
+            theme=self._theme,
+            mode="folders",
+            library_root=self.current_folder,
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        if self.config is not None:
+            self.config.last_rename_folder_template = dialog.template_text()
+            self.config.rename_issue_pad_width = dialog.issue_pad_width()
+            self.config.save()
+        rows = dialog.folder_plan_rows()
+        self.status_label.setText("Renaming folders…")
+        self.rename_folders_btn.setEnabled(False)
+        self.rename_btn.setEnabled(False)
+        self.folder_rename_worker = FolderRenameWorker(rows, self.current_folder)
+        self.folder_rename_worker.progress.connect(
+            lambda current, total, name: self.status_label.setText(
+                f"Renaming folders: {current}/{total} — {name}"
+            )
+        )
+        self.folder_rename_worker.finished.connect(self._on_folder_rename_complete)
+        self.folder_rename_worker.start()
+
+    def _on_folder_rename_complete(self, results):
+        mapping: dict[str, str] = {}
+        failures = 0
+        renamed_comics: list[Comic] = []
+        root_old: Path | None = None
+        root_new: Path | None = None
+        for result in results:
+            if result.error or result.folder_new is None:
+                failures += 1
+                continue
+            row = result.row
+            folder_mapping = self._remap_comic_paths_under_folder(
+                row.folder_old, result.folder_new
+            )
+            mapping.update(folder_mapping)
+            for comic in row.comics:
+                if comic not in renamed_comics:
+                    renamed_comics.append(comic)
+            if result.library_root_new is not None:
+                root_old = result.library_root_old
+                root_new = result.library_root_new
+        for comic in self.comics:
+            if str(comic.path) in mapping.values():
+                self.refresh_comic(comic)
+        if mapping:
+            self._selection.remap_paths(mapping)
+            self._restore_selection()
+        if root_new is not None and root_old is not None:
+            self.current_folder = root_new
+            self.library_root_renamed.emit(root_old, root_new)
+        self.folder_rename_worker = None
+        self._update_rename_enabled()
+        success = len([r for r in results if r.folder_new and not r.error])
+        if failures:
+            self.status_label.setText(
+                f"Renamed {success} folder(s); {failures} failed"
+            )
+        else:
+            self.status_label.setText(f"Renamed {success} folder(s)")
+        if renamed_comics:
+            self.files_renamed.emit(renamed_comics)
+            self.comics_changed.emit(list(self.comics))
+        self._update_counts()
+
     def _on_rename_complete(self, results):
         mapping: dict[str, str] = {}
         renamed_comics: list[Comic] = []
@@ -392,8 +523,8 @@ class ComicList(QWidget):
         if mapping:
             self._selection.remap_paths(mapping)
             self._restore_selection()
-        self.rename_btn.setEnabled(any(comic.has_local_file for comic in self.comics))
         self.rename_worker = None
+        self._update_rename_enabled()
         success = len(renamed_comics)
         if failures:
             self.status_label.setText(

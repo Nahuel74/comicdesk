@@ -51,6 +51,7 @@ bash packaging/verify_build.sh
 | `getcomics_download_folder` | str | `""` |
 | `theme` | str | `"dark"` (`dark`, `light`, or `system`) |
 | `last_rename_template` | str | `""` |
+| `last_rename_folder_template` | str | `""` |
 | `rename_issue_pad_width` | int | `0` — fallback leading zeros for `{Number}` when ComicInfo Count is empty |
 
 ### UI (primary nav)

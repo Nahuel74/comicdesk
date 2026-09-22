@@ -44,6 +44,7 @@ class Config:
     getcomics_download_folder: str = ""
     theme: str = "dark"
     last_rename_template: str = ""
+    last_rename_folder_template: str = ""
     rename_issue_pad_width: int = 0
 
     def save(self) -> None:

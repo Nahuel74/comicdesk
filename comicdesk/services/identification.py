@@ -198,19 +198,29 @@ def apply_volume_to_comic(
 def _apply_issue_rich_fields(comic, issue, overwrite):
     values = {
         "summary": _strip_html(issue.description), "publisher": issue.publisher,
+        "imprint": getattr(issue, "imprint", ""),
         "genre": ", ".join(issue.genres), "characters": ", ".join(issue.character_credits),
         "locations": ", ".join(issue.location_credits), "teams": ", ".join(issue.team_credits),
         "story_arc": ", ".join(issue.story_arc_credits), "age_rating": issue.age_rating,
     }
     from comicdesk.services.comicvine_mapping import credits_by_role
     values.update({k: ", ".join(v) for k, v in credits_by_role(issue.person_credits).items()})
+    from comicdesk.services.comicinfo import COMMA_SEPARATED_FIELDS, format_comma_separated
+
     for field, value in values.items():
-        if value and (overwrite or not getattr(comic, field, "")):
+        if not value:
+            continue
+        if field in COMMA_SEPARATED_FIELDS:
+            value = format_comma_separated(value)
+        if overwrite or not getattr(comic, field, ""):
             setattr(comic, field, value)
     if issue.concept_credits and (overwrite or not comic.tags):
-        comic.tags = ", ".join(issue.concept_credits)
+        comic.tags = format_comma_separated(", ".join(issue.concept_credits))
     if issue.volume_count_of_issues and (overwrite or not comic.count):
         comic.count = issue.volume_count_of_issues
+    deck = (getattr(issue, "deck", "") or "").strip()
+    if deck and (overwrite or not (comic.notes or "").strip()):
+        comic.notes = deck
 
 
 def _apply_volume_rich_fields(comic, volume, overwrite):
@@ -219,9 +229,15 @@ def _apply_volume_rich_fields(comic, volume, overwrite):
               "characters": ", ".join(volume.character_credits),
               "locations": ", ".join(volume.location_credits),
               "teams": ", ".join(volume.team_credits), "age_rating": volume.age_rating}
+    from comicdesk.services.comicinfo import COMMA_SEPARATED_FIELDS, format_comma_separated
+
     values.update({k: ", ".join(v) for k, v in credits_by_role(volume.person_credits).items()})
     for field, value in values.items():
-        if value and (overwrite or not getattr(comic, field, "")):
+        if not value:
+            continue
+        if field in COMMA_SEPARATED_FIELDS:
+            value = format_comma_separated(value)
+        if overwrite or not getattr(comic, field, ""):
             setattr(comic, field, value)
     if volume.count_of_issues and (overwrite or not comic.count):
         comic.count = volume.count_of_issues
@@ -697,24 +713,18 @@ def _hydrate_exact_issue(client, issue: ComicVineIssue):
 
 
 def issue_needs_volume_resolve(issue: ComicVineIssue) -> bool:
-    """Return True when parent volume year or issue count is still missing."""
-    if not str(getattr(issue, "series_id", "") or "").strip():
-        return False
-    start_year = (getattr(issue, "volume_start_year", "") or "").strip()
-    if not re.fullmatch(r"(19|20)\d{2}", start_year):
-        return True
-    return not (getattr(issue, "volume_count_of_issues", "") or "").strip()
+    """Return True when parent volume data may still fill issue fields."""
+    from comicdesk.services.comicvine_api import issue_needs_parent_volume_lookup
+
+    return issue_needs_parent_volume_lookup(issue)
 
 
 def issue_needs_hydrate(issue: ComicVineIssue) -> bool:
     """Return True when a search/list hit still needs a get_issue round trip."""
     if not getattr(issue, "id", None):
         return False
-    if (getattr(issue, "description", "") or "").strip():
-        return False
-    if getattr(issue, "person_credits", None):
-        return False
-    return True
+    credits = getattr(issue, "person_credits", None)
+    return not credits
 
 
 def _enrich_issue_volume_from_comic(comic: Comic, issue: ComicVineIssue) -> None:

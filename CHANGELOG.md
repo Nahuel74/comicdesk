@@ -4,6 +4,21 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-09-22
+
+### Added
+
+- Library **Rename folders…** renames series/volume directories under the scanned folder from a metadata template (preview, validation when issues in the same folder would get different names)
+
+### Changed
+
+- Metadata editor: Comic Vine–only fields, spaced Title Case labels, and comma-separated credits normalized with `, ` on apply
+
+### Fixed
+
+- Comic Vine enrichment: composite credit roles (e.g. `penciler, cover`), publisher/imprint from the parent volume when the issue payload is incomplete, and hydration when search/list results lack `person_credits`; genre only when Comic Vine exposes real `genres` (not volume concept tags)
+- **Rename folders…** treats nested **Annual** / **Special** (and similar) subfolders as separate rename targets instead of grouping them with the parent series directory
+
 ## [1.8.9] - 2026-09-20
 
 ### Added

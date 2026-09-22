@@ -11,9 +11,12 @@ from comicdesk.utils.rename_template import (
     format_issue_number,
     normalize_rendered_stem,
     plan_apply_allowed,
+    plan_folder_apply_allowed,
+    plan_folder_renames,
     plan_renames,
     render_template,
     rendered_stem_to_filename,
+    series_folder_for_comic,
 )
 
 
@@ -210,6 +213,177 @@ def test_plan_apply_allowed():
                 comic=ok_row.comic,
                 old_path=ok_row.old_path,
                 proposed_path=ok_row.proposed_path,
+                status=RenameRowStatus.COLLISION,
+            )
+        ]
+    )
+
+
+def test_series_folder_for_comic_at_library_root(tmp_path):
+    root = tmp_path / "lib"
+    root.mkdir()
+    cbz = root / "book.cbz"
+    cbz.touch()
+    comic = Comic(path=cbz)
+    assert series_folder_for_comic(comic, root) == root.resolve()
+
+
+def test_series_folder_for_comic_one_level_under_root(tmp_path):
+    root = tmp_path / "lib"
+    series = root / "Old Series"
+    series.mkdir(parents=True)
+    cbz = series / "01.cbz"
+    cbz.touch()
+    comic = Comic(path=cbz)
+    assert series_folder_for_comic(comic, root) == series.resolve()
+
+
+def test_series_folder_for_comic_skips_issue_subdirectory(tmp_path):
+    root = tmp_path / "lib"
+    series = root / "Old Series"
+    issue_dir = series / "issue sub"
+    issue_dir.mkdir(parents=True)
+    cbz = issue_dir / "01.cbz"
+    cbz.touch()
+    comic = Comic(path=cbz)
+    assert series_folder_for_comic(comic, root) == series.resolve()
+
+
+def test_series_folder_annual_subdirectory_is_separate(tmp_path):
+    root = tmp_path / "Marvel"
+    series = root / "Black Panther (2005)"
+    annual = series / "Annual"
+    annual.mkdir(parents=True)
+    regular = series / "01.cbz"
+    regular.touch()
+    annual_cbz = annual / "annual.cbz"
+    annual_cbz.touch()
+    regular_comic = Comic(path=regular, series_name="Black Panther", volume="2005")
+    annual_comic = Comic(
+        path=annual_cbz,
+        series_name="Black Panther Annual",
+        volume="2005",
+    )
+    assert series_folder_for_comic(regular_comic, root) == series.resolve()
+    assert series_folder_for_comic(annual_comic, root) == annual.resolve()
+
+
+def test_plan_folder_does_not_mix_annual_with_series(tmp_path):
+    root = tmp_path / "Marvel"
+    series = root / "Black Panther (2005)"
+    annual_dir = series / "Annual"
+    annual_dir.mkdir(parents=True)
+    (series / "01.cbz").touch()
+    (annual_dir / "annual.cbz").touch()
+    comics = [
+        Comic(path=series / "01.cbz", series_name="Black Panther", volume="2005"),
+        Comic(
+            path=annual_dir / "annual.cbz",
+            series_name="Black Panther Annual",
+            volume="2005",
+        ),
+    ]
+    rows = plan_folder_renames(comics, "{Series} ({Volume})", root)
+    assert len(rows) == 2
+    assert {row.folder_old.resolve() for row in rows} == {series.resolve(), annual_dir.resolve()}
+    assert all(
+        row.status in (RenameRowStatus.OK, RenameRowStatus.UNCHANGED) for row in rows
+    )
+
+
+def test_plan_folder_renames_ok(tmp_path):
+    root = tmp_path / "lib"
+    series = root / "Old Name"
+    series.mkdir(parents=True)
+    cbz = series / "a.cbz"
+    cbz.touch()
+    comic = Comic(path=cbz, series_name="Alpha", volume="2020")
+    rows = plan_folder_renames([comic], "{Series} ({Volume})", root)
+    assert len(rows) == 1
+    assert rows[0].status == RenameRowStatus.OK
+    assert rows[0].folder_new is not None
+    assert rows[0].folder_new.name == "Alpha (2020)"
+
+
+def test_plan_folder_rejects_issue_placeholder_conflict(tmp_path):
+    root = tmp_path / "lib"
+    series = root / "Series"
+    series.mkdir(parents=True)
+    first = series / "a.cbz"
+    second = series / "b.cbz"
+    first.touch()
+    second.touch()
+    comics = [
+        Comic(path=first, series_name="S", issue_number="1", volume="2020"),
+        Comic(path=second, series_name="S", issue_number="2", volume="2020"),
+    ]
+    rows = plan_folder_renames(comics, "{Series} - {Number}", root)
+    assert len(rows) == 1
+    assert rows[0].status == RenameRowStatus.INVALID
+    assert rows[0].message.startswith("Names do not match")
+
+
+def test_plan_folder_mismatch_lists_examples(tmp_path):
+    root = tmp_path / "lib"
+    series = root / "Old"
+    series.mkdir(parents=True)
+    first = series / "a.cbz"
+    second = series / "b.cbz"
+    first.touch()
+    second.touch()
+    comics = [
+        Comic(path=first, series_name="Doom's Division", volume="2025"),
+        Comic(path=second, series_name="Doom's Division", volume=""),
+    ]
+    rows = plan_folder_renames(comics, "{Series} ({Volume})", root)
+    assert rows[0].status == RenameRowStatus.INVALID
+    assert "Doom's Division" in rows[0].message
+
+
+def test_plan_folder_unchanged(tmp_path):
+    root = tmp_path / "lib"
+    series = root / "Alpha (2020)"
+    series.mkdir(parents=True)
+    cbz = series / "a.cbz"
+    cbz.touch()
+    comic = Comic(path=cbz, series_name="Alpha", volume="2020")
+    rows = plan_folder_renames([comic], "{Series} ({Volume})", root)
+    assert rows[0].status == RenameRowStatus.UNCHANGED
+
+
+def test_plan_folder_foreign_collision(tmp_path):
+    root = tmp_path / "lib"
+    root.mkdir()
+    taken = root / "Taken (2020)"
+    taken.mkdir()
+    source = root / "Source"
+    source.mkdir()
+    cbz = source / "a.cbz"
+    cbz.touch()
+    comic = Comic(path=cbz, series_name="Taken", volume="2020")
+    rows = plan_folder_renames([comic], "{Series} ({Volume})", root)
+    assert rows[0].status == RenameRowStatus.COLLISION
+
+
+def test_plan_folder_apply_allowed(tmp_path):
+    root = tmp_path / "lib"
+    series = root / "Old"
+    series.mkdir(parents=True)
+    cbz = series / "a.cbz"
+    cbz.touch()
+    row = plan_folder_renames(
+        [Comic(path=cbz, series_name="Alpha", volume="2020")],
+        "{Series} ({Volume})",
+        root,
+    )[0]
+    assert row.status == RenameRowStatus.OK
+    assert plan_folder_apply_allowed([row])
+    assert not plan_folder_apply_allowed(
+        [
+            row.__class__(
+                folder_old=row.folder_old,
+                folder_new=row.folder_new,
+                comics=row.comics,
                 status=RenameRowStatus.COLLISION,
             )
         ]

@@ -67,6 +67,7 @@ def _parse_issue_response(result: dict) -> ComicVineIssue:
         web_url=result.get("site_detail_url", ""),
         name=result.get("name") or "",
         description=result.get("description") or "",
+        deck=str(result.get("deck") or "").strip(),
         publisher=(result.get("publisher") or {}).get("name", "") if isinstance(result.get("publisher"), dict) else "",
         genres=_names(result.get("genres")),
         character_credits=_names(result.get("character_credits")),
@@ -86,6 +87,9 @@ def _parse_volume_response(result: dict) -> ComicVineVolume:
     """Parse API response into ComicVineVolume."""
     if not isinstance(result, dict):
         raise ComicVineError("Comic Vine returned an invalid volume")
+    publisher = result.get("publisher") or {}
+    if not isinstance(publisher, dict):
+        publisher = {}
     return ComicVineVolume(
         id=str(result.get("id", "")),
         name=result.get("name") or "",
@@ -93,9 +97,12 @@ def _parse_volume_response(result: dict) -> ComicVineVolume:
         web_url=result.get("site_detail_url") or "",
         count_of_issues=str(result.get("count_of_issues") or ""),
         description=result.get("description") or "",
-        publisher=(result.get("publisher") or {}).get("name", "") if isinstance(result.get("publisher"), dict) else "",
+        publisher=publisher.get("name", "") or "",
+        publisher_id=str(publisher.get("id", "") or ""),
         genres=_names(result.get("genres")),
-        character_credits=_names(result.get("character_credits")),
+        concepts=_names(result.get("concepts")),
+        character_credits=_names(result.get("character_credits"))
+        or _names(result.get("characters")),
         concept_credits=_names(result.get("concept_credits")),
         location_credits=_names(result.get("location_credits")),
         person_credits=result.get("person_credits") or [],
@@ -142,13 +149,59 @@ def _response_json(response: httpx.Response) -> dict:
     return data
 
 
-ISSUE_FIELDS = ("id,volume,issue_number,name,cover_date,store_date,site_detail_url,description,"
+ISSUE_FIELDS = ("id,volume,issue_number,name,cover_date,store_date,site_detail_url,description,deck,"
                 "publisher,genres,character_credits,concept_credits,location_credits,"
                 "person_credits,story_arc_credits,team_credits,age_rating,image")
 VOLUME_FIELDS = ("id,name,start_year,count_of_issues,site_detail_url,description,"
-                 "publisher,genres,character_credits,concept_credits,location_credits,"
+                 "publisher,genres,characters,character_credits,concept_credits,location_credits,"
                  "person_credits,team_credits,age_rating,image")
+PUBLISHER_FIELDS = ("id,name,aliases")
 
+
+def issue_needs_parent_volume_lookup(issue: ComicVineIssue) -> bool:
+    """Return True when the parent volume record may still fill issue fields."""
+    series_id = str(getattr(issue, "series_id", "") or "").strip()
+    if not series_id:
+        return False
+    start_year = (getattr(issue, "volume_start_year", "") or "").strip()
+    if not re.fullmatch(r"(19|20)\d{2}", start_year):
+        return True
+    if not (getattr(issue, "volume_count_of_issues", "") or "").strip():
+        return True
+    if not (getattr(issue, "publisher", "") or "").strip():
+        return True
+    if not (getattr(issue, "imprint", "") or "").strip():
+        return True
+    return False
+
+
+def _publisher_imprint_from_result(result: dict) -> str:
+    """Prefer the first publisher alias (imprint line) over the short name."""
+    if not isinstance(result, dict):
+        return ""
+    aliases = str(result.get("aliases") or "").splitlines()
+    for line in aliases:
+        text = line.strip()
+        if text:
+            return text
+    return str(result.get("name") or "").strip()
+
+
+def _merge_volume_into_issue(issue: ComicVineIssue, volume: ComicVineVolume) -> None:
+    """Copy missing issue fields from a parent volume record."""
+    if volume.start_year:
+        issue.volume = volume.start_year
+        issue.volume_start_year = volume.start_year
+    if volume.count_of_issues:
+        issue.volume_count_of_issues = volume.count_of_issues
+    if not (issue.publisher or "").strip() and volume.publisher:
+        issue.publisher = volume.publisher
+    if not (issue.age_rating or "").strip() and volume.age_rating:
+        issue.age_rating = volume.age_rating
+    if not (issue.genres or []) and volume.genres:
+        issue.genres = list(volume.genres)
+    if not (getattr(issue, "imprint", "") or "").strip() and volume.imprint:
+        issue.imprint = volume.imprint
 
 class ComicVineClient:
     """Client for Comic Vine API with rate limiting and caching."""
@@ -159,6 +212,7 @@ class ComicVineClient:
         self._last_request_time = 0.0
         self._cache: dict[str, dict] = {}
         self._volume_cache: dict[str, ComicVineVolume] = {}
+        self._publisher_cache: dict[str, str] = {}
         self._cookies: dict[str, str] = {}
         
         if cache_enabled:
@@ -308,24 +362,18 @@ class ComicVineClient:
         return data
 
     def resolve_parent_volume(self, issue: ComicVineIssue) -> None:
-        """Fill series start year and issue count from the parent volume record."""
+        """Fill series metadata from the parent volume when the issue payload is incomplete."""
         start_year = (issue.volume_start_year or "").strip()
         if re.fullmatch(r"(19|20)\d{2}", start_year):
             issue.volume = start_year
-        has_count = bool((issue.volume_count_of_issues or "").strip())
-        has_year = bool(re.fullmatch(r"(19|20)\d{2}", start_year))
-        if has_year and has_count:
+        if not issue_needs_parent_volume_lookup(issue):
             return
         series_id = str(issue.series_id or "").strip()
         if not series_id:
             return
         try:
             volume = self.get_volume(series_id)
-            if volume.start_year:
-                issue.volume = volume.start_year
-                issue.volume_start_year = volume.start_year
-            if volume.count_of_issues:
-                issue.volume_count_of_issues = volume.count_of_issues
+            _merge_volume_into_issue(issue, volume)
             logger.info(
                 "comicvine_volume_resolved series_id=%s start_year=%s",
                 series_id,
@@ -353,8 +401,29 @@ class ComicVineClient:
             "field_list": VOLUME_FIELDS
         })
         volume = _parse_volume_response(data.get("results") or {})
+        if volume.publisher_id:
+            volume.imprint = self._publisher_imprint(volume.publisher_id)
         self._volume_cache[volume_id] = volume
         return volume
+
+    def _publisher_imprint(self, publisher_id: str) -> str:
+        """Resolve a publisher imprint label from Comic Vine publisher aliases."""
+        publisher_id = str(publisher_id or "").strip()
+        if not publisher_id:
+            return ""
+        cached = self._publisher_cache.get(publisher_id)
+        if cached is not None:
+            return cached
+        try:
+            data = self._request(f"publisher/4010-{publisher_id}", {
+                "field_list": PUBLISHER_FIELDS,
+            })
+            result = data.get("results") or {}
+            imprint = _publisher_imprint_from_result(result)
+        except ComicVineError:
+            imprint = ""
+        self._publisher_cache[publisher_id] = imprint
+        return imprint
 
     def search_issue(self, query: str) -> list[ComicVineIssue]:
         """Search for issues by name."""

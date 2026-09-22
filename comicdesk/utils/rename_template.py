@@ -31,6 +31,42 @@ class RenamePlanRow:
     message: str = ""
 
 
+@dataclass(frozen=True)
+class RenameFolderPlanRow:
+    """One series/volume folder rename affecting one or more local comics."""
+
+    folder_old: Path
+    folder_new: Path | None
+    comics: tuple[Comic, ...]
+    status: RenameRowStatus
+    message: str = ""
+
+
+DEFAULT_FOLDER_TEMPLATE = "{Series} ({Volume})"
+
+# Subfolders under a series directory that get their own folder rename (not rolled up).
+_DISTINCT_SERIES_SUBFOLDER_NAMES = frozenset(
+    {
+        "annual",
+        "annuals",
+        "special",
+        "specials",
+        "one-shot",
+        "one shot",
+        "oneshot",
+        "tpb",
+        "tpbs",
+        "trade",
+        "trades",
+        "hardcover",
+        "hc",
+    }
+)
+_DISTINCT_SERIES_SUBFOLDER_RE = re.compile(
+    r"\b(annuals?|one[- ]?shots?|specials?|tpbs?|trades?)\b", re.IGNORECASE
+)
+
+
 def _build_placeholder_registry() -> dict[str, str]:
     """Map case-insensitive placeholder names to Comic attribute names."""
     registry: dict[str, str] = {}
@@ -58,9 +94,9 @@ QUICK_PLACEHOLDERS: tuple[tuple[str, str], ...] = (
 )
 
 
-def placeholder_help_lines() -> list[str]:
+def placeholder_help_lines(*, for_folders: bool = False) -> list[str]:
     """Short help lines for UI."""
-    return [
+    lines = [
         "Type a filename pattern using {FieldName} placeholders (see buttons below). "
         "Example: {Series} - {Number} ({Year}).",
         "Issue numbers ({Number}): when ComicInfo Count is set, leading zeros match the "
@@ -69,6 +105,13 @@ def placeholder_help_lines() -> list[str]:
         "{Volume} is ComicInfo “Volume” (often the series start/publication year). "
         "{Year} is the issue’s Year field.",
     ]
+    if for_folders:
+        lines.append(
+            "Series folders: every comic in the same series folder must produce the "
+            "same name from your template. If preview shows invalid, align metadata on "
+            "all issues (Series, Volume, etc.) or drop per-issue fields such as {Number}."
+        )
+    return lines
 
 
 def count_derived_issue_pad_width(comic: Comic) -> int | None:
@@ -321,6 +364,254 @@ def plan_renames(
 
 def plan_apply_allowed(rows: list[RenamePlanRow]) -> bool:
     """True when Apply should be enabled (no blocking invalid/collision/excluded-only batch)."""
+    actionable = [row for row in rows if row.status != RenameRowStatus.EXCLUDED]
+    if not actionable:
+        return False
+    return all(
+        row.status in (RenameRowStatus.OK, RenameRowStatus.UNCHANGED)
+        for row in actionable
+    )
+
+
+def series_folder_for_comic(comic: Comic, library_root: Path) -> Path | None:
+    """Series/volume directory for *comic* relative to the scanned library folder."""
+    if not comic.has_local_file:
+        return None
+    root = Path(library_root).resolve()
+    file_parent = comic.path.parent.resolve()
+    if file_parent == root:
+        return root
+    try:
+        relative = file_parent.relative_to(root)
+    except ValueError:
+        return None
+    parts = relative.parts
+    if not parts:
+        return root
+    if len(parts) == 1:
+        return file_parent
+    if _is_distinct_series_subfolder(parts[-1]):
+        return file_parent
+    return root / parts[0]
+
+
+def _is_distinct_series_subfolder(name: str) -> bool:
+    """True when a nested folder should rename on its own (Annual, Special, etc.)."""
+    key = name.strip().casefold()
+    if key in _DISTINCT_SERIES_SUBFOLDER_NAMES:
+        return True
+    return _DISTINCT_SERIES_SUBFOLDER_RE.search(name) is not None
+
+
+def proposed_series_folder_name(
+    template: str, comic: Comic, *, issue_pad_width: int = 0
+) -> str:
+    """Rendered folder name (sanitized) for *comic*, or empty when invalid."""
+    raw = render_template(template, comic, issue_pad_width=issue_pad_width)
+    if not raw.strip():
+        return ""
+    return rendered_stem_to_filename(raw)
+
+
+def folder_rename_error_message(title: str, detail: str) -> str:
+    """Short title on the first line; remaining lines are detail (UI adds an error icon)."""
+    title = title.strip()
+    detail = (detail or "").strip()
+    return f"{title}\n{detail}" if detail else title
+
+
+def _series_folder_name_mismatch_message(
+    members: tuple[Comic, ...], names: set[str]
+) -> str:
+    """Explain why a shared series folder cannot be renamed with this template."""
+    count = len(members)
+    distinct = len(names)
+    samples = sorted(names, key=str.casefold)[:3]
+    lines = [f"· {name}" for name in samples]
+    if distinct > len(samples):
+        lines.append(f"· … +{distinct - len(samples)} more")
+    detail = (
+        f"{count} comics · {distinct} different names\n"
+        + "\n".join(lines)
+        + "\nAlign Series, Volume on every issue."
+    )
+    return folder_rename_error_message("Names do not match", detail)
+
+
+def proposed_series_folder_path(
+    template: str,
+    comic: Comic,
+    library_root: Path,
+    *,
+    issue_pad_width: int = 0,
+) -> Path | None:
+    """Proposed series folder path for *comic*, or None when invalid."""
+    old_folder = series_folder_for_comic(comic, library_root)
+    if old_folder is None:
+        return None
+    name = proposed_series_folder_name(template, comic, issue_pad_width=issue_pad_width)
+    if not name:
+        return None
+    return old_folder.parent / name
+
+
+def plan_folder_renames(
+    comics: list[Comic],
+    template: str,
+    library_root: Path,
+    *,
+    issue_pad_width: int = 0,
+) -> list[RenameFolderPlanRow]:
+    """Build preview rows for batch series-folder renames (one row per distinct folder)."""
+    root = Path(library_root).resolve()
+    groups: dict[Path, list[Comic]] = {}
+    excluded: list[tuple[Comic, str]] = []
+
+    for comic in comics:
+        if not comic.has_local_file:
+            excluded.append((comic, "No local comic file"))
+            continue
+        folder = series_folder_for_comic(comic, root)
+        if folder is None:
+            excluded.append((comic, "Comic is outside the scanned library folder"))
+            continue
+        groups.setdefault(folder.resolve(), []).append(comic)
+
+    rows: list[RenameFolderPlanRow] = []
+    for comic, message in excluded:
+        rows.append(
+            RenameFolderPlanRow(
+                folder_old=comic.path.parent,
+                folder_new=None,
+                comics=(comic,),
+                status=RenameRowStatus.EXCLUDED,
+                message=message,
+            )
+        )
+
+    draft: list[tuple[Path, tuple[Comic, ...], Path | None, str, str]] = []
+
+    for old_folder in sorted(groups.keys(), key=lambda p: str(p).casefold()):
+        members = tuple(groups[old_folder])
+        names: set[str] = set()
+        invalid_message = ""
+        for comic in members:
+            name = proposed_series_folder_name(
+                template, comic, issue_pad_width=issue_pad_width
+            )
+            if not name:
+                invalid_message = folder_rename_error_message(
+                    "Empty folder name",
+                    "The template produced no name for one or more issues.",
+                )
+                break
+            names.add(name)
+        if invalid_message:
+            draft.append((old_folder, members, None, "invalid", invalid_message))
+            continue
+        if len(names) > 1:
+            draft.append(
+                (
+                    old_folder,
+                    members,
+                    None,
+                    "invalid",
+                    _series_folder_name_mismatch_message(members, names),
+                )
+            )
+            continue
+        proposed = old_folder.parent / names.pop()
+        if proposed.resolve() == old_folder:
+            draft.append((old_folder, members, proposed, "unchanged", ""))
+        else:
+            draft.append((old_folder, members, proposed, "pending", ""))
+
+    source_folders = set(groups.keys())
+
+    proposed_targets: dict[Path, list[Path]] = {}
+    for old_folder, _members, proposed, state, _msg in draft:
+        if state != "pending" or proposed is None:
+            continue
+        key = proposed.resolve()
+        proposed_targets.setdefault(key, []).append(old_folder)
+
+    duplicate_targets = {
+        path for path, owners in proposed_targets.items() if len(owners) > 1
+    }
+
+    old_to_proposed: dict[Path, Path | None] = {}
+    for old_folder, _members, proposed, state, _msg in draft:
+        if state == "unchanged":
+            old_to_proposed[old_folder] = old_folder
+        elif state == "pending" and proposed is not None:
+            old_to_proposed[old_folder] = proposed.resolve()
+
+    for old_folder, members, proposed, state, message in draft:
+        if state == "invalid":
+            rows.append(
+                RenameFolderPlanRow(
+                    folder_old=old_folder,
+                    folder_new=None,
+                    comics=members,
+                    status=RenameRowStatus.INVALID,
+                    message=message,
+                )
+            )
+            continue
+        if state == "unchanged":
+            rows.append(
+                RenameFolderPlanRow(
+                    folder_old=old_folder,
+                    folder_new=proposed,
+                    comics=members,
+                    status=RenameRowStatus.UNCHANGED,
+                    message="Already matches template",
+                )
+            )
+            continue
+
+        assert proposed is not None
+        target = proposed.resolve()
+        status = RenameRowStatus.OK
+        detail = ""
+
+        if target in duplicate_targets:
+            status = RenameRowStatus.COLLISION
+            detail = folder_rename_error_message(
+                "Name conflict",
+                "Duplicate proposed folder name in this batch",
+            )
+        elif target.exists() and target != old_folder:
+            if target not in source_folders:
+                status = RenameRowStatus.COLLISION
+                detail = folder_rename_error_message(
+                    "Name conflict",
+                    "A folder with this name already exists",
+                )
+            else:
+                occupant_proposed = old_to_proposed.get(target)
+                if occupant_proposed == target:
+                    status = RenameRowStatus.COLLISION
+                    detail = folder_rename_error_message(
+                        "Name conflict",
+                        "Another folder in this batch already uses that name",
+                    )
+
+        rows.append(
+            RenameFolderPlanRow(
+                folder_old=old_folder,
+                folder_new=proposed,
+                comics=members,
+                status=status,
+                message=detail,
+            )
+        )
+
+    return rows
+
+
+def plan_folder_apply_allowed(rows: list[RenameFolderPlanRow]) -> bool:
+    """True when folder Apply should be enabled."""
     actionable = [row for row in rows if row.status != RenameRowStatus.EXCLUDED]
     if not actionable:
         return False

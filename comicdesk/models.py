@@ -222,7 +222,10 @@ class ComicVineVolume:
     count_of_issues: str = ""
     description: str = ""
     publisher: str = ""
+    publisher_id: str = ""
+    imprint: str = ""
     genres: list[str] = field(default_factory=list)
+    concepts: list[str] = field(default_factory=list)
     character_credits: list[str] = field(default_factory=list)
     concept_credits: list[str] = field(default_factory=list)
     location_credits: list[str] = field(default_factory=list)
@@ -245,7 +248,9 @@ class ComicVineIssue:
     store_date: str = ""
     name: str = ""
     description: str = ""
+    deck: str = ""
     publisher: str = ""
+    imprint: str = ""
     genres: list[str] = field(default_factory=list)
     character_credits: list[str] = field(default_factory=list)
     concept_credits: list[str] = field(default_factory=list)

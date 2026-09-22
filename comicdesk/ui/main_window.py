@@ -93,6 +93,7 @@ class MainWindow(QMainWindow):
         self.metadata_panel.dirty_changed.connect(self.setWindowModified)
         self.comic_list.comics_changed.connect(self.metadata_panel.set_comics)
         self.comic_list.files_renamed.connect(self._on_library_files_renamed)
+        self.comic_list.library_root_renamed.connect(self._on_library_root_renamed)
         self.comic_list.scan_completed.connect(self._on_library_scan_completed)
         self.metadata_panel.set_comics(self.comic_list.comics)
         self.app_shell.navigation_changed.connect(self._on_navigation_changed)
@@ -241,6 +242,11 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage(
                 f"Renamed {len(comics)} file(s) on disk"
             )
+
+    def _on_library_root_renamed(self, old_root, new_root) -> None:
+        new_path = Path(new_root)
+        self.folder_sidebar.select_folder(new_path)
+        self.statusbar.showMessage(f"Renamed library folder to {new_path.name}")
 
     def _on_getcomics_download(self, comic):
         comic_path = Path(comic.path)
