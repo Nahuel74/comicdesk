@@ -1,18 +1,183 @@
 """Background workers for library scan and bulk file rename."""
 
+import logging
 import os
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
 from comicdesk.models import Comic
-from comicdesk.services.comic_archive import scan_comics
+from comicdesk.services.cbz_writer import CbzWriteError
+from comicdesk.services.comic_archive import scan_comics, write_comic_metadata
+from comicdesk.services.comicvine_api import ComicVineClient
+from comicdesk.services.identification import (
+    STATUS_CANDIDATES,
+    STATUS_EMPTY,
+    STATUS_EXACT,
+    hydrate_issue_for_apply,
+    identify_comic,
+)
+from comicdesk.services.metadata_session import MetadataSession
+from comicdesk.ui.cbz_metadata_workers import _api_error_message
 from comicdesk.utils.rename_template import (
     RenameFolderPlanRow,
     RenamePlanRow,
     RenameRowStatus,
 )
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class MetadataRefreshItemResult:
+    """Outcome of refreshing one comic from Comic Vine."""
+
+    comic: Comic
+    outcome: str
+    message: str = ""
+    previous_path: str = ""
+
+
+def refresh_comic_metadata_from_comicvine(comic: Comic, client) -> MetadataRefreshItemResult:
+    """Identify, apply, and persist Comic Vine metadata for one library comic."""
+    previous_path = str(comic.path)
+    try:
+        snapshot = deepcopy(comic)
+        result = identify_comic(snapshot, client, issues_only=True)
+        if result.status != STATUS_EXACT or result.issue is None:
+            if result.status == STATUS_CANDIDATES:
+                return MetadataRefreshItemResult(
+                    comic,
+                    "skipped",
+                    "Comic Vine returned more than one possible issue. "
+                    "Open the Metadata tab to choose the correct match.",
+                )
+            if result.status == STATUS_EMPTY:
+                return MetadataRefreshItemResult(
+                    comic,
+                    "skipped",
+                    "Comic Vine did not find a matching issue for this file.",
+                )
+            return MetadataRefreshItemResult(
+                comic,
+                "skipped",
+                "This file could not be matched to a single Comic Vine issue.",
+            )
+        issue = hydrate_issue_for_apply(client, result.issue)
+        session = MetadataSession(comic)
+        session.apply_proposal(issue, overwrite=True)
+        saved_path = write_comic_metadata(session.draft)
+        session.draft.path = saved_path
+        session.commit()
+        path_changed = str(saved_path) != previous_path
+        return MetadataRefreshItemResult(
+            comic,
+            "success",
+            previous_path=previous_path if path_changed else "",
+        )
+    except CbzWriteError as exc:
+        logger.exception("metadata_refresh_write_failed error_type=%s", type(exc).__name__)
+        return MetadataRefreshItemResult(
+            comic, "failed", f"Unable to save comic metadata: {exc}"
+        )
+    except Exception as exc:
+        logger.exception("metadata_refresh_failed error_type=%s", type(exc).__name__)
+        return MetadataRefreshItemResult(comic, "failed", _api_error_message(exc))
+
+
+def metadata_refresh_status_line(results: list[MetadataRefreshItemResult]) -> str:
+    """One-line summary for the library status label."""
+    success = sum(1 for item in results if item.outcome == "success")
+    skipped = sum(1 for item in results if item.outcome == "skipped")
+    failed = sum(1 for item in results if item.outcome == "failed")
+    parts = [f"Updated {success} archive(s)"]
+    if skipped:
+        parts.append(f"{skipped} skipped")
+    if failed:
+        parts.append(f"{failed} failed")
+    return "; ".join(parts)
+
+
+def format_metadata_refresh_details(
+    results: list[MetadataRefreshItemResult],
+    *,
+    max_entries: int = 12,
+) -> str:
+    """Multi-line report for skipped and failed items."""
+    skipped = [item for item in results if item.outcome == "skipped"]
+    failed = [item for item in results if item.outcome == "failed"]
+    if not skipped and not failed:
+        return ""
+    lines: list[str] = []
+    success = sum(1 for item in results if item.outcome == "success")
+    if success:
+        lines.append(f"Updated {success} archive(s).")
+        lines.append("")
+    if skipped:
+        lines.append("Not updated (identification):")
+        shown = skipped[:max_entries]
+        for item in shown:
+            name = Path(item.comic.path).name
+            detail = item.message or "Could not identify this issue."
+            lines.append(f"• {name} — {detail}")
+        remaining = len(skipped) - len(shown)
+        if remaining > 0:
+            lines.append(f"• …and {remaining} more")
+        lines.append("")
+    if failed:
+        lines.append("Could not save:")
+        shown = failed[:max_entries]
+        for item in shown:
+            name = Path(item.comic.path).name
+            detail = item.message or "Unknown error."
+            lines.append(f"• {name} — {detail}")
+        remaining = len(failed) - len(shown)
+        if remaining > 0:
+            lines.append(f"• …and {remaining} more")
+    return "\n".join(lines).rstrip()
+
+
+class FolderMetadataRefreshWorker(QThread):
+    """Sequentially refresh Comic Vine metadata for a folder or selection."""
+
+    progress = Signal(int, int, str)
+    item_saved = Signal(object, str)
+    finished = Signal(list)
+
+    def __init__(
+        self,
+        comics: list[Comic],
+        api_key: str,
+        cache_enabled: bool = True,
+    ):
+        super().__init__()
+        self.comics = list(comics)
+        self.api_key = str(api_key or "").strip()
+        self.cache_enabled = bool(cache_enabled)
+        self._cancelled = False
+
+    def run(self):
+        results: list[MetadataRefreshItemResult] = []
+        if not self.api_key or not self.comics:
+            self.finished.emit(results)
+            return
+        client = ComicVineClient(self.api_key, cache_enabled=self.cache_enabled)
+        total = len(self.comics)
+        for index, comic in enumerate(self.comics):
+            if self._cancelled:
+                break
+            name = Path(comic.path).name
+            self.progress.emit(index + 1, total, name)
+            item = refresh_comic_metadata_from_comicvine(comic, client)
+            results.append(item)
+            if item.outcome == "success":
+                self.item_saved.emit(comic, item.previous_path)
+        self.finished.emit(results)
+
+    def cancel(self):
+        self._cancelled = True
 
 
 @dataclass

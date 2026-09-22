@@ -4,6 +4,12 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-09-22
+
+### Added
+
+- Library **Update metadata…** batch action: refresh Comic Vine metadata for the current folder or selection when every target has a lookup key (Issue ID, Series ID + number, or series name + number), with sequential identify, apply, and archive write; confirmation before overwrite and a detailed summary when some files are skipped or fail
+
 ## [1.9.0] - 2026-09-22
 
 ### Added

@@ -10,6 +10,7 @@ from comicdesk.services.identification import (
     STATUS_EXACT,
     IdentificationResult,
     apply_issue_to_comic,
+    comic_has_identification_lookup_key,
     identify_comic,
 )
 
@@ -760,3 +761,36 @@ def test_apply_falls_back_to_cover_date_when_store_date_none():
     assert comic.year == "2020"
     assert comic.month == "03"
     assert comic.day == "04"
+
+
+def test_lookup_key_with_cv_issue_id_only():
+    comic = Comic(Path("local.cbz"), cv_issue_id="99")
+    assert comic_has_identification_lookup_key(comic)
+
+
+def test_lookup_key_with_series_id_and_number():
+    comic = Comic(Path("local.cbz"), cv_series_id="55", issue_number="3")
+    assert comic_has_identification_lookup_key(comic)
+
+
+def test_lookup_key_from_filename_series_and_number():
+    comic = Comic(Path("Saga v2012 003 (Digital).cbz"))
+    assert comic_has_identification_lookup_key(comic)
+
+
+def test_lookup_key_prefers_filename_number_for_of_count_suffix():
+    comic = Comic(
+        Path("Saga v2012 003 (Digital).cbz"),
+        issue_number="03 (of 05)",
+    )
+    assert comic_has_identification_lookup_key(comic)
+
+
+def test_lookup_key_false_without_issue_number():
+    comic = Comic(Path("local.cbz"), series_name="Saga", cv_series_id="55")
+    assert not comic_has_identification_lookup_key(comic)
+
+
+def test_lookup_key_false_with_series_name_only():
+    comic = Comic(Path("local.cbz"), series_name="Saga")
+    assert not comic_has_identification_lookup_key(comic)

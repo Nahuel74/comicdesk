@@ -16,8 +16,7 @@ from comicdesk.services.comicvine_api import (
     InvalidAPIKeyError,
     RateLimitError,
 )
-from comicdesk.services.identification import identify_comic
-from comicdesk.services.identification import issue_needs_hydrate, issue_needs_volume_resolve
+from comicdesk.services.identification import hydrate_issue_for_apply, identify_comic
 
 logger = logging.getLogger(__name__)
 
@@ -131,14 +130,7 @@ class MetadataHydrateWorker(QThread):
             return
         try:
             client = ComicVineClient(self.api_key, cache_enabled=self.cache_enabled)
-            candidate = self.candidate
-            if issue_needs_hydrate(candidate):
-                hydrated = client.get_issue(candidate.id)
-            elif issue_needs_volume_resolve(candidate):
-                client.resolve_parent_volume(candidate)
-                hydrated = candidate
-            else:
-                hydrated = candidate
+            hydrated = hydrate_issue_for_apply(client, self.candidate)
             if not self._cancelled:
                 self.finished.emit(hydrated)
         except Exception as exc:

@@ -39,6 +39,20 @@ class IdentificationResult:
         return self.issues or self.volumes
 
 
+def comic_has_identification_lookup_key(comic: Comic) -> bool:
+    """Return True when local metadata can drive a Comic Vine identification attempt."""
+    if str(comic.cv_issue_id or "").strip():
+        return True
+    parsed = parse_comic_filename(comic.path)
+    issue_number = _issue_number_for_lookup(comic, parsed)
+    if not issue_number:
+        return False
+    if str(comic.cv_series_id or "").strip():
+        return True
+    series_name = (comic.series_name or "").strip() or (parsed.series_name or "").strip()
+    return bool(series_name)
+
+
 def identify_comic(comic: Comic, client, *, issues_only: bool = False) -> IdentificationResult:
     """Identify a comic without mutating it or auto-picking ambiguous hits."""
     parsed = parse_comic_filename(comic.path)
@@ -725,6 +739,15 @@ def issue_needs_hydrate(issue: ComicVineIssue) -> bool:
         return False
     credits = getattr(issue, "person_credits", None)
     return not credits
+
+
+def hydrate_issue_for_apply(client, issue: ComicVineIssue) -> ComicVineIssue:
+    """Fetch complete Comic Vine details before applying metadata to a comic."""
+    if issue_needs_hydrate(issue):
+        return client.get_issue(issue.id)
+    if issue_needs_volume_resolve(issue):
+        client.resolve_parent_volume(issue)
+    return issue
 
 
 def _enrich_issue_volume_from_comic(comic: Comic, issue: ComicVineIssue) -> None:
