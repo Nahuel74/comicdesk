@@ -266,7 +266,7 @@ class RenamePagesDialog(QDialog):
     def _style_preview_item(self, item: QListWidgetItem, status: RenameRowStatus) -> None:
         if status in (RenameRowStatus.INVALID, RenameRowStatus.COLLISION):
             item.setForeground(Qt.GlobalColor.red)
-        elif status == RenameRowStatus.UNCHANGED:
+        elif status in (RenameRowStatus.UNCHANGED, RenameRowStatus.EXCLUDED):
             item.setForeground(Qt.GlobalColor.gray)
 
     def _try_accept(self) -> None:

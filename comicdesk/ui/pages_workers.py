@@ -15,7 +15,10 @@ from comicdesk.services.comic_pages import (
 )
 from comicdesk.services.cbz_writer import CbzWriteError
 from comicdesk.models import Comic
-from comicdesk.utils.page_rename_template import RenamePageMemberRow, rename_map_for_comic
+from comicdesk.utils.page_rename_template import (
+    RenamePageMemberRow,
+    full_rename_map_for_comic,
+)
 from comicdesk.utils.rename_template import RenameRowStatus
 
 logger = logging.getLogger(__name__)
@@ -209,6 +212,7 @@ class PagesRenameWorker(QThread):
 
     def __init__(self, rows: list[RenamePageMemberRow], token: int = 0):
         super().__init__()
+        self._all_rows = list(rows)
         self.rows = [row for row in rows if row.status == RenameRowStatus.OK]
         self.token = token
         self._cancelled = False
@@ -231,7 +235,10 @@ class PagesRenameWorker(QThread):
             for index, comic in enumerate(comics_order, start=1):
                 if self._cancelled:
                     return
-                mapping = rename_map_for_comic(by_comic[id(comic)], comic)
+                comic_rows = [
+                    row for row in self._all_rows if row.comic is comic
+                ]
+                mapping = full_rename_map_for_comic(comic_rows, comic)
                 if not mapping:
                     continue
                 previous = str(comic.path)

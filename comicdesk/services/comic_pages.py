@@ -119,6 +119,30 @@ def _dominant_stem_pattern(page_names: list[str]) -> str | None:
     return None
 
 
+def logical_page_number_from_member_name(member_name: str) -> int | None:
+    """Parse a 1-based page number from common scan-style image filenames.
+
+    When no pattern matches, returns None (use archive order index instead).
+    """
+    stem = Path(member_name).stem
+    scan_pairs = list(re.finditer(r"\d{3}-\d{3}", stem))
+    if scan_pairs:
+        page_part = scan_pairs[-1].group(0).split("-", 1)[1]
+        return int(page_part)
+    page_word = re.search(r"\bpage\s*(\d+)\b", stem, re.IGNORECASE)
+    if page_word:
+        return int(page_word.group(1))
+    p_tag = re.search(r"\bp(\d+)\b", stem, re.IGNORECASE)
+    if p_tag:
+        return int(p_tag.group(1))
+    if re.fullmatch(r"\d+", stem):
+        return int(stem)
+    trailing = re.search(r"-(\d+)\s*$", stem)
+    if trailing:
+        return int(trailing.group(1))
+    return None
+
+
 def _has_numbering_criterion(stem: str) -> bool:
     if re.search(r"\bpage\s*\d+", stem, re.IGNORECASE):
         return True
@@ -193,6 +217,8 @@ def rename_image_members(path: Path, renames: dict[str, str]) -> Path:
             )
         if old_name == new_name:
             continue
+
+    validate_image_rename_plan(current_images, renames)
 
     active = {k: v for k, v in renames.items() if k != v}
     if not active:
@@ -298,24 +324,70 @@ def _basename_member_name(name: str) -> str:
     return PurePosixPath(name.replace("\\", "/")).name
 
 
+def image_member_output_name_after_rename(
+    member_name: str, renames: dict[str, str]
+) -> str:
+    """Archive path for an image member after rename/flatten rules."""
+    if member_name in renames:
+        return renames[member_name]
+    if not _is_root_member_name(member_name):
+        return _basename_member_name(member_name)
+    return member_name
+
+
+def image_rename_output_collisions(
+    image_member_names: list[str], renames: dict[str, str]
+) -> dict[str, list[str]]:
+    """Map output paths to source members when more than one source shares a path."""
+    by_output: dict[str, list[str]] = {}
+    for name in image_member_names:
+        out = image_member_output_name_after_rename(name, renames)
+        by_output.setdefault(out, []).append(name)
+    return {out: sources for out, sources in by_output.items() if len(sources) > 1}
+
+
+def validate_image_rename_plan(
+    image_member_names: list[str], renames: dict[str, str]
+) -> None:
+    """Reject rename plans that would write duplicate image paths into the archive."""
+    collisions = image_rename_output_collisions(image_member_names, renames)
+    if not collisions:
+        return
+    out, sources = next(iter(collisions.items()))
+    raise CbzWriteError(
+        f"Duplicate archive path after rename: {out!r} "
+        f"({sources[0]!r} and {sources[1]!r})"
+    )
+
+
+def _planned_image_outputs(
+    image_member_names: list[str], renames: dict[str, str]
+) -> dict[str, str]:
+    validate_image_rename_plan(image_member_names, renames)
+    return {
+        name: image_member_output_name_after_rename(name, renames)
+        for name in image_member_names
+    }
+
+
 def _rewrite_cbz_rename(source: Path, dest: Path, renames: dict[str, str]) -> None:
     """Rewrite archive, flattening image pages to the root and dropping folder entries."""
     with zipfile.ZipFile(source, "r") as zin, zipfile.ZipFile(dest, "w") as zout:
         zout.comment = zin.comment
+        image_names = [
+            item.filename
+            for item in zin.infolist()
+            if not item.filename.endswith(("/", "\\"))
+            and is_image_page_member(item.filename)
+        ]
+        planned = _planned_image_outputs(image_names, renames)
         comicinfo_written = False
         for item in zin.infolist():
             name = item.filename
             if name.endswith(("/", "\\")):
                 continue
-            if name in renames:
-                zout.writestr(renames[name], zin.read(name))
-                continue
             if is_image_page_member(name):
-                if not _is_root_member_name(name):
-                    flat = _basename_member_name(name)
-                    zout.writestr(flat, zin.read(name))
-                else:
-                    zout.writestr(item, zin.read(name))
+                zout.writestr(planned[name], zin.read(name))
                 continue
             if name.lower() == _COMICINFO_LOWER:
                 zout.writestr(name, zin.read(name))
@@ -397,18 +469,19 @@ def _rename_in_cbz(path: Path, renames: dict[str, str]) -> Path:
 
 def _write_cbz_from_cbr_rename(cbr_path: Path, dest: Path, renames: dict[str, str]) -> None:
     with open_cbr(cbr_path) as archive, zipfile.ZipFile(dest, "w") as zout:
+        member_names = list(iter_archive_file_members(archive))
+        image_names = [
+            name
+            for name in member_names
+            if not name.endswith(("/", "\\")) and is_image_page_member(name)
+        ]
+        planned = _planned_image_outputs(image_names, renames)
         comicinfo_written = False
-        for name in iter_archive_file_members(archive):
+        for name in member_names:
             if name.endswith(("/", "\\")):
                 continue
-            if name in renames:
-                zout.writestr(renames[name], archive.read(name))
-                continue
             if is_image_page_member(name):
-                if not _is_root_member_name(name):
-                    zout.writestr(_basename_member_name(name), archive.read(name))
-                else:
-                    zout.writestr(name, archive.read(name))
+                zout.writestr(planned[name], archive.read(name))
                 continue
             if name.lower() == _COMICINFO_LOWER:
                 zout.writestr(COMICINFO_NAME, archive.read(name))

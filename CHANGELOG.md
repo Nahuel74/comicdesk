@@ -4,6 +4,16 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-09-24
+
+### Fixed
+
+- **Pages** bulk rename could corrupt `.cbz` contents when nested image members flattened to the same path as a rename target
+- **Pages** `{Page}` in rename templates no longer inherits issue-number zero padding from ComicInfo Count (only `{Number}` and explicit `{Page:N}` / “Page digits” apply)
+- **Pages** `{Page}` uses the page segment from scan-style filenames (e.g. `001-003` → 3) when present, instead of only archive order index
+- **Pages** bulk rename resolves duplicate page targets by keeping the root or scan-style member and skipping nested or weaker duplicates so one collision does not block the whole archive
+- **Pages** `{Page}` keeps scan page `000` (e.g. `001-000` → 0) instead of treating it as archive index 1
+
 ## [1.11.0] - 2026-09-24
 
 ### Added

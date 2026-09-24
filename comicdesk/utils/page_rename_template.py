@@ -6,10 +6,15 @@ import re
 from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from comicdesk.models import Comic
-from comicdesk.services.comic_pages import list_image_pages
+from comicdesk.services.comic_pages import (
+    image_member_output_name_after_rename,
+    image_rename_output_collisions,
+    list_image_pages,
+    logical_page_number_from_member_name,
+)
 from comicdesk.services.comic_archive import read_comic_metadata_fresh
 from comicdesk.utils.comic_filename import safe_comic_stem
 from comicdesk.utils.rename_template import (
@@ -41,8 +46,9 @@ def page_placeholder_help_lines() -> list[str]:
     return [
         "Rename image members inside each archive using {FieldName} placeholders. "
         f"Example: {DEFAULT_PAGE_TEMPLATE}.",
-        "{Page} is the 1-based index in archive image order; use “Page digits” for "
-        "leading zeros (0 = none). {PageTotal} is the image count.",
+        "{Page} uses the page number from scan-style names (e.g. 001-003 → 3) when "
+        "detected; otherwise the 1-based index in archive image order. Use “Page "
+        "digits” or {Page:3} for leading zeros. {PageTotal} is the image count.",
         "Issue numbers ({Number}) follow the same rules as Library file rename.",
         "Series and other comic placeholders use the Metadata tab draft when that "
         "issue is open there; otherwise values come from ComicInfo.xml in the archive. "
@@ -94,17 +100,20 @@ def render_page_member_stem(
     """Render template to a stem for one archive page (before extension)."""
     default_issue_pad = issue_pad_width_for_comic(comic, issue_pad_width)
     member_posix = PurePosixPath((old_member_name or "").replace("\\", "/"))
+    logical_page = logical_page_number_from_member_name(old_member_name)
+    page_value = logical_page if logical_page is not None else page_index
 
     def replace(match: re.Match[str]) -> str:
         spec = match.group(1)
         name, pad = _parse_placeholder_spec(spec, default_issue_pad)
         name_key = name.strip().casefold()
         if name_key == "page":
-            if pad > 0:
-                return str(page_index).zfill(pad)
+            _, page_pad = _parse_placeholder_spec(spec, 0)
+            if page_pad > 0:
+                return str(page_value).zfill(page_pad)
             if page_pad_width > 0:
-                return str(page_index).zfill(page_pad_width)
-            return str(page_index)
+                return str(page_value).zfill(page_pad_width)
+            return str(page_value)
         if name_key == "pagetotal":
             return str(page_total)
         if name_key == "pagefolder":
@@ -122,6 +131,30 @@ def render_page_member_stem(
         return raw
 
     return normalize_rendered_stem(_PLACEHOLDER.sub(replace, template or ""))
+
+
+def _page_member_rename_priority(old_name: str, page_names: list[str]) -> tuple:
+    """Rank archive members that share one rename target (higher wins)."""
+    posix = old_name.replace("\\", "/")
+    at_root = "/" not in posix
+    stem = Path(old_name).stem
+    has_scan_pair = bool(re.search(r"\d{3}-\d{3}", stem))
+    order = page_names.index(old_name)
+    return (at_root, has_scan_pair, -order)
+
+
+def _duplicate_proposed_name_losers(
+    proposed_targets: dict[str, list[str]], page_names: list[str]
+) -> set[str]:
+    losers: set[str] = set()
+    for owners in proposed_targets.values():
+        if len(owners) < 2:
+            continue
+        winner = max(owners, key=lambda name: _page_member_rename_priority(name, page_names))
+        for name in owners:
+            if name != winner:
+                losers.add(name)
+    return losers
 
 
 def proposed_member_name(
@@ -213,6 +246,14 @@ def plan_page_member_renames(
         duplicate_targets = {
             name for name, owners in proposed_targets.items() if len(owners) > 1
         }
+        duplicate_losers = _duplicate_proposed_name_losers(proposed_targets, page_names)
+
+        plan_renames = {
+            old_name: proposed
+            for old_name, proposed, _state in draft
+            if proposed is not None and old_name not in duplicate_losers
+        }
+        output_collisions = image_rename_output_collisions(page_names, plan_renames)
 
         for old_name, proposed, state in draft:
             if state == "invalid":
@@ -227,22 +268,32 @@ def plan_page_member_renames(
                 )
                 continue
             if state == "unchanged":
+                status = RenameRowStatus.UNCHANGED
+                message = "Already matches template"
+                out_path = image_member_output_name_after_rename(old_name, plan_renames)
+                if out_path in output_collisions:
+                    status = RenameRowStatus.COLLISION
+                    message = "Members would write to the same archive path"
                 rows.append(
                     RenamePageMemberRow(
                         comic=comic,
                         old_name=old_name,
                         proposed_name=proposed,
-                        status=RenameRowStatus.UNCHANGED,
-                        message="Already matches template",
+                        status=status,
+                        message=message,
                     )
                 )
                 continue
             assert proposed is not None
             status = RenameRowStatus.OK
             message = ""
-            if proposed in duplicate_targets:
+            out_path = image_member_output_name_after_rename(old_name, plan_renames)
+            if old_name in duplicate_losers:
+                status = RenameRowStatus.EXCLUDED
+                message = "Duplicate page target; keeping another member"
+            elif out_path in output_collisions:
                 status = RenameRowStatus.COLLISION
-                message = "Duplicate proposed name in this archive"
+                message = "Members would write to the same archive path"
             rows.append(
                 RenamePageMemberRow(
                     comic=comic,
@@ -260,7 +311,8 @@ def plan_page_rename_apply_allowed(rows: list[RenamePageMemberRow]) -> bool:
     if not rows:
         return False
     return all(
-        row.status in (RenameRowStatus.OK, RenameRowStatus.UNCHANGED)
+        row.status
+        in (RenameRowStatus.OK, RenameRowStatus.UNCHANGED, RenameRowStatus.EXCLUDED)
         for row in rows
     )
 
@@ -274,6 +326,22 @@ def rename_map_for_comic(rows: list[RenamePageMemberRow], comic: Comic) -> dict[
     mapping: dict[str, str] = {}
     for row in rows:
         if row.comic is not comic or row.status != RenameRowStatus.OK:
+            continue
+        if row.proposed_name is None:
+            continue
+        mapping[row.old_name] = row.proposed_name
+    return mapping
+
+
+def full_rename_map_for_comic(
+    rows: list[RenamePageMemberRow], comic: Comic
+) -> dict[str, str]:
+    """Old→new member names for one comic (OK and UNCHANGED rows)."""
+    mapping: dict[str, str] = {}
+    for row in rows:
+        if row.comic is not comic:
+            continue
+        if row.status not in (RenameRowStatus.OK, RenameRowStatus.UNCHANGED):
             continue
         if row.proposed_name is None:
             continue
