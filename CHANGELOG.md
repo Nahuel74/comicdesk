@@ -4,6 +4,12 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-09-24
+
+### Added
+
+- **Pages** tab: browse image members of the selected issue with page preview; **Delete selected pages…** for manual removal; **Auto-clean folder…** runs filename heuristics across the scanned folder; **Rename pages…** bulk-renames archive members from a template (Library selection or whole folder), including `{PageFolder}` and `{ArchiveStem}` for scan release layouts; renames flatten nested folders to archive root; shared folder sidebar with Library and Metadata
+
 ## [1.10.0] - 2026-09-22
 
 ### Added

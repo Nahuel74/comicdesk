@@ -5,6 +5,7 @@ from PySide6.QtWidgets import QHBoxLayout, QStackedWidget, QLabel, QVBoxLayout, 
 
 from comicdesk.ui.comic_list import ComicList
 from comicdesk.ui.cbz_metadata_panel import CbzMetadataPanel
+from comicdesk.ui.pages_panel import PagesPanel
 from comicdesk.ui.reading_list_panel import ReadingListPanel
 from comicdesk.ui.shell.acquire_page import AcquirePage
 from comicdesk.ui.shell.primary_nav import (
@@ -12,6 +13,7 @@ from comicdesk.ui.shell.primary_nav import (
     NAV_LIBRARY,
     NAV_LISTS,
     NAV_METADATA,
+    NAV_PAGES,
     PrimaryNav,
 )
 from comicdesk.ui.widgets.collapsible_sidebar import CollapsibleSidebar
@@ -28,6 +30,7 @@ class AppShell(QWidget):
         folder_sidebar: CollapsibleSidebar,
         comic_list: ComicList,
         metadata_panel: CbzMetadataPanel,
+        pages_panel: PagesPanel,
         reading_list_panel: ReadingListPanel,
         acquire_page: AcquirePage,
         parent=None,
@@ -37,6 +40,7 @@ class AppShell(QWidget):
         self.folder_sidebar = folder_sidebar
         self.comic_list = comic_list
         self.metadata_panel = metadata_panel
+        self.pages_panel = pages_panel
         self.reading_list_panel = reading_list_panel
         self.acquire_page = acquire_page
         self.getcomics_panel = acquire_page.getcomics_panel
@@ -64,6 +68,11 @@ class AppShell(QWidget):
         self._metadata_sidebar_layout.setContentsMargins(0, 0, 0, 0)
         self._metadata_sidebar_layout.setSpacing(0)
 
+        self._pages_sidebar_host = QWidget()
+        self._pages_sidebar_layout = QHBoxLayout(self._pages_sidebar_host)
+        self._pages_sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        self._pages_sidebar_layout.setSpacing(0)
+
         self.lists_hint_banner = QLabel(
             "You added comics from Library. Reorder, sort, or export a CBL from here."
         )
@@ -73,6 +82,7 @@ class AppShell(QWidget):
 
         self.stack.addWidget(self._build_library_page())
         self.stack.addWidget(self._wrap_metadata_page())
+        self.stack.addWidget(self._wrap_pages_page())
         self.stack.addWidget(self._wrap_lists_page())
         self.stack.addWidget(self.acquire_page)
 
@@ -81,8 +91,9 @@ class AppShell(QWidget):
         self._nav_index = {
             NAV_LIBRARY: 0,
             NAV_METADATA: 1,
-            NAV_LISTS: 2,
-            NAV_ACQUIRE: 3,
+            NAV_PAGES: 2,
+            NAV_LISTS: 3,
+            NAV_ACQUIRE: 4,
         }
         self.primary_nav.navigated.connect(self.navigate_to)
         self._attach_sidebar_to(NAV_LIBRARY)
@@ -117,6 +128,21 @@ class AppShell(QWidget):
         layout.addWidget(self._metadata_sidebar_host, 1)
         return page
 
+    def _wrap_pages_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        chrome = PanelChrome(
+            "Pages",
+            "Review archive image pages and remove credits, watermarks, and other extras.",
+        )
+        layout.addWidget(chrome)
+
+        self._pages_sidebar_layout.addWidget(self.pages_panel, 1)
+        layout.addWidget(self._pages_sidebar_host, 1)
+        return page
+
     def _wrap_lists_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -137,20 +163,21 @@ class AppShell(QWidget):
             layout = parent_layout.layout()
             if layout is not None:
                 layout.removeWidget(self.folder_sidebar)
-        if nav_id not in (NAV_LIBRARY, NAV_METADATA):
+        if nav_id not in (NAV_LIBRARY, NAV_METADATA, NAV_PAGES):
             self.folder_sidebar.hide()
             return
-        target = (
-            self._library_sidebar_layout
-            if nav_id == NAV_LIBRARY
-            else self._metadata_sidebar_layout
-        )
+        if nav_id == NAV_LIBRARY:
+            target = self._library_sidebar_layout
+        elif nav_id == NAV_METADATA:
+            target = self._metadata_sidebar_layout
+        else:
+            target = self._pages_sidebar_layout
         target.insertWidget(0, self.folder_sidebar)
         self.folder_sidebar.restore_visible_width()
         self.folder_sidebar.show()
 
     def folder_sidebar_allowed(self) -> bool:
-        return self.current_nav_id() in (NAV_LIBRARY, NAV_METADATA)
+        return self.current_nav_id() in (NAV_LIBRARY, NAV_METADATA, NAV_PAGES)
 
     def notify_lists_attention(self, count: int) -> None:
         if count <= 0:
@@ -189,5 +216,6 @@ class AppShell(QWidget):
         self.folder_sidebar.apply_theme(theme)
         self.comic_list.apply_theme(theme)
         self.metadata_panel.apply_theme(theme)
+        self.pages_panel.apply_theme(theme)
         self.reading_list_panel.apply_theme(theme)
         self.acquire_page.apply_theme(theme)

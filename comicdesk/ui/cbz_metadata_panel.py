@@ -1181,12 +1181,49 @@ class CbzMetadataPanel(QWidget):
         raw_path = getattr(comic, "path", None) if comic is not None else None
         return str(Path(raw_path)) if raw_path else ""
 
+    def metadata_snapshot_for_comic(self, comic: Comic) -> Comic | None:
+        """Return the Metadata tab draft for *comic*, if that issue has a session."""
+        if comic is None:
+            return None
+        key = self._comic_path_key(comic)
+        if not key:
+            return None
+        if self.comic is not None and self._comic_path_key(self.comic) == key and self.session:
+            return self.session.snapshot()
+        extra = self._extra_sessions.get(key)
+        if extra is not None:
+            return extra.snapshot()
+        return None
+
     def notify_comic_renamed(self, comic: Comic) -> None:
         """Keep the active metadata session aligned after a library file rename."""
         if comic is None or self.comic is not comic:
             return
         self._path_key = self._comic_path_key(comic)
         self.instance_model.set_editing_path(self._path_key)
+
+    def notify_pages_removed(self, comic: Comic, page_count: str) -> None:
+        """Sync Page Count when pages were removed outside the metadata editor."""
+        if comic is None:
+            return
+        key = self._comic_path_key(comic)
+        session = None
+        if self.comic is comic and self.session is not None:
+            session = self.session
+        elif key in self._extra_sessions:
+            session = self._extra_sessions[key]
+        comic.page_count = page_count
+        if session is None:
+            return
+        if session.draft.page_count != session.original.page_count:
+            return
+        session.original.page_count = page_count
+        session.draft.page_count = page_count
+        session._saved_draft.page_count = page_count
+        if self.comic is comic and self.session is session:
+            widget = self.inputs.get("page_count")
+            if widget is not None:
+                widget.setText(page_count)
     def _join_or_defer_delete(self, thread, *, defer_signals=None) -> None:
         if thread.isRunning():
             if not thread.wait(WORKER_JOIN_TIMEOUT_MS):

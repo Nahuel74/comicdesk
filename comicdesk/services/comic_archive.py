@@ -77,6 +77,17 @@ def read_comic_metadata(path: Path) -> Comic:
     return comic
 
 
+def read_comic_metadata_fresh(path: Path) -> Comic:
+    """Read ComicInfo from disk without using the scan metadata cache."""
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix == ".cbz":
+        return read_cbz_metadata(path)
+    if suffix == ".cbr":
+        return read_cbr_metadata(path)
+    return Comic(path=path)
+
+
 def _read_comic_for_scan(path: Path) -> tuple[Comic | None, str | None]:
     try:
         return read_comic_metadata(path), None

@@ -52,7 +52,9 @@ bash packaging/verify_build.sh
 | `theme` | str | `"dark"` (`dark`, `light`, or `system`) |
 | `last_rename_template` | str | `""` |
 | `last_rename_folder_template` | str | `""` |
+| `last_rename_page_template` | str | `""` |
 | `rename_issue_pad_width` | int | `0` — fallback leading zeros for `{Number}` when ComicInfo Count is empty |
+| `rename_page_pad_width` | int | `0` — fallback leading zeros for `{Page}` in bulk archive page rename |
 
 ### UI (primary nav)
 

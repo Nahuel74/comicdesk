@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 import comicdesk.config as config_module
 from comicdesk.ui.main_window import MainWindow
-from comicdesk.ui.shell.primary_nav import NAV_ACQUIRE, NAV_LIBRARY, NAV_METADATA
+from comicdesk.ui.shell.primary_nav import NAV_ACQUIRE, NAV_LIBRARY, NAV_METADATA, NAV_PAGES
 from comicdesk.ui.theme import colors_for
 
 
@@ -29,9 +29,10 @@ def test_main_window_builds_offscreen(qapp):
     assert window.comic_list is window.app_shell.comic_list
     assert window.reading_list_panel is window.app_shell.reading_list_panel
     assert window.metadata_panel is window.app_shell.metadata_panel
+    assert window.pages_panel is window.app_shell.pages_panel
     assert window.getcomics_panel is window.app_shell.getcomics_panel
     assert window.download_queue_panel is window.app_shell.download_queue_panel
-    assert window.app_shell.stack.count() == 4
+    assert window.app_shell.stack.count() == 5
     assert window.menuBar().actions()
     status = window.statusbar.currentMessage()
     assert status == "Ready" or status.startswith("Scanning: ")
@@ -102,6 +103,10 @@ def test_folder_sidebar_hidden_on_lists(qapp):
     assert not window.folder_sidebar.isVisible()
     window.app_shell.navigate_to("library")
     assert window.folder_sidebar.isVisible()
+    window.app_shell.navigate_to(NAV_PAGES)
+    assert window.folder_sidebar.isVisible()
+    window.app_shell.navigate_to(NAV_ACQUIRE)
+    assert not window.folder_sidebar.isVisible()
     window.close()
 
 

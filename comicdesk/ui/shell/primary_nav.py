@@ -8,19 +8,25 @@ from comicdesk.ui.theme import SPACING
 
 NAV_LIBRARY = "library"
 NAV_METADATA = "metadata"
+NAV_PAGES = "pages"
 NAV_LISTS = "lists"
 NAV_ACQUIRE = "acquire"
 
 _NAV_ITEMS = (
     (NAV_LIBRARY, "Library", "Browse comic folders and enrichment status"),
     (NAV_METADATA, "Metadata", "Edit ComicInfo and Comic Vine data"),
+    (
+        NAV_PAGES,
+        "Pages",
+        "Browse issue pages and remove images that are not part of the issue",
+    ),
     (NAV_LISTS, "Lists", "CBL reading lists and reconciliation"),
     (NAV_ACQUIRE, "Acquire", "GetComics search, wishlist, and downloads"),
 )
 
 
 class PrimaryNav(QWidget):
-    """Horizontal nav buttons for the four main workflows."""
+    """Horizontal nav buttons for the main workflows."""
 
     navigated = Signal(str)
 

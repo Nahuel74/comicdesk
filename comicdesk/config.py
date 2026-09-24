@@ -45,7 +45,9 @@ class Config:
     theme: str = "dark"
     last_rename_template: str = ""
     last_rename_folder_template: str = ""
+    last_rename_page_template: str = ""
     rename_issue_pad_width: int = 0
+    rename_page_pad_width: int = 0
 
     def save(self) -> None:
         """Save config to file."""

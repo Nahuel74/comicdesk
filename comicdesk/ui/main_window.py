@@ -10,6 +10,7 @@ from comicdesk.ui.config_dialog import ConfigDialog
 from comicdesk.ui.comic_list import ComicList
 from comicdesk.ui.reading_list_panel import ReadingListPanel
 from comicdesk.ui.cbz_metadata_panel import CbzMetadataPanel
+from comicdesk.ui.pages_panel import PagesPanel
 from comicdesk.ui.getcomics_panel import GetComicsPanel
 from comicdesk.ui.download_queue_panel import DownloadQueuePanel
 from comicdesk.services.download_queue import DownloadQueueManager
@@ -50,6 +51,7 @@ class MainWindow(QMainWindow):
         self.reading_list_panel = ReadingListPanel(config=self.config)
         self.reading_list_panel.set_wishlist_manager(self.wishlist_manager)
         self.metadata_panel = CbzMetadataPanel(config=self.config)
+        self.pages_panel = PagesPanel(config=self.config)
         self.getcomics_panel = GetComicsPanel(config=self.config)
         self.getcomics_panel.set_wishlist_manager(self.wishlist_manager)
         self.download_queue = DownloadQueueManager(config=self.config)
@@ -66,6 +68,7 @@ class MainWindow(QMainWindow):
             folder_sidebar=self.folder_sidebar,
             comic_list=self.comic_list,
             metadata_panel=self.metadata_panel,
+            pages_panel=self.pages_panel,
             reading_list_panel=self.reading_list_panel,
             acquire_page=self.acquire_page,
         )
@@ -85,6 +88,9 @@ class MainWindow(QMainWindow):
         self.reading_list_panel.dirty_changed.connect(self.setWindowModified)
         self.reading_list_panel.wishlist_items_added.connect(self._on_wishlist_items_added)
         self.metadata_panel.status_message.connect(self.statusbar.showMessage)
+        self.pages_panel.status_message.connect(self.statusbar.showMessage)
+        self.pages_panel.pages_removed.connect(self._on_pages_removed)
+        self.pages_panel.pages_renamed.connect(self._on_pages_renamed)
         self.getcomics_panel.status_message.connect(self.statusbar.showMessage)
         self.download_queue.download_completed.connect(self._on_getcomics_download)
         self.download_queue_panel.status_message.connect(self.statusbar.showMessage)
@@ -92,10 +98,20 @@ class MainWindow(QMainWindow):
         self.metadata_panel.comic_focus_requested.connect(self.comic_list.focus_comic)
         self.metadata_panel.dirty_changed.connect(self.setWindowModified)
         self.comic_list.comics_changed.connect(self.metadata_panel.set_comics)
+        self.comic_list.comics_changed.connect(self.pages_panel.set_comics)
+        self.comic_list.comic_focused.connect(self.pages_panel.set_focus_comic)
+        self.comic_list.table.selectionModel().selectionChanged.connect(
+            self._sync_pages_library_selection
+        )
         self.comic_list.files_renamed.connect(self._on_library_files_renamed)
         self.comic_list.library_root_renamed.connect(self._on_library_root_renamed)
         self.comic_list.scan_completed.connect(self._on_library_scan_completed)
         self.metadata_panel.set_comics(self.comic_list.comics)
+        self.pages_panel.set_comics(self.comic_list.comics)
+        self.pages_panel.set_metadata_for_template(
+            self.metadata_panel.metadata_snapshot_for_comic
+        )
+        self._sync_pages_library_selection()
         self.app_shell.navigation_changed.connect(self._on_navigation_changed)
         app = QApplication.instance()
         if app is not None:
@@ -206,7 +222,9 @@ class MainWindow(QMainWindow):
 
     def _toggle_folder_sidebar(self) -> None:
         if not self.app_shell.folder_sidebar_allowed():
-            self.statusbar.showMessage("Folder sidebar is only available on Library and Metadata")
+            self.statusbar.showMessage(
+                "Folder sidebar is only available on Library, Metadata, and Pages"
+            )
             return
         self.folder_sidebar.toggle_collapsed()
 
@@ -230,6 +248,22 @@ class MainWindow(QMainWindow):
             self.statusbar.showMessage(
                 f"Removed {removed} acquired item(s) from the wishlist"
             )
+
+    def _on_pages_removed(self, comic, saved_path, previous_path: str = "") -> None:
+        self.comic_list.refresh_comic(comic, previous_path=previous_path or "")
+        page_count = getattr(comic, "page_count", "") or ""
+        self.metadata_panel.notify_pages_removed(comic, page_count)
+
+    def _on_pages_renamed(self, results) -> None:
+        for comic, _saved, previous in results or []:
+            self.comic_list.refresh_comic(comic, previous_path=previous or "")
+        if results:
+            self.statusbar.showMessage(
+                f"Renamed pages inside {len(results)} archive(s)"
+            )
+
+    def _sync_pages_library_selection(self, *_args) -> None:
+        self.pages_panel.set_library_selection(self.comic_list._selected_comics())
 
     def _on_metadata_saved(self, comic, previous_path: str = "") -> None:
         self.comic_list.refresh_comic(comic, previous_path=previous_path or "")
@@ -274,6 +308,7 @@ class MainWindow(QMainWindow):
         self.comic_list.shutdown_workers()
         self.reading_list_panel.shutdown_workers()
         self.metadata_panel.shutdown_workers()
+        self.pages_panel.shutdown_workers()
         self.getcomics_panel.shutdown_workers()
         self.download_queue_panel.shutdown_workers()
         super().closeEvent(event)
