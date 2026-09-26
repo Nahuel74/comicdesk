@@ -228,8 +228,11 @@ def _apply_issue_rich_fields(comic, issue, overwrite):
             value = format_comma_separated(value)
         if overwrite or not getattr(comic, field, ""):
             setattr(comic, field, value)
-    if issue.concept_credits and (overwrite or not comic.tags):
-        comic.tags = format_comma_separated(", ".join(issue.concept_credits))
+    from comicdesk.services.comicvine_mapping import concept_names_for_tags
+
+    tag_names = concept_names_for_tags(issue.concept_credits)
+    if tag_names and (overwrite or not comic.tags):
+        comic.tags = format_comma_separated(", ".join(tag_names))
     if issue.volume_count_of_issues and (overwrite or not comic.count):
         comic.count = issue.volume_count_of_issues
     deck = (getattr(issue, "deck", "") or "").strip()
@@ -253,6 +256,12 @@ def _apply_volume_rich_fields(comic, volume, overwrite):
             value = format_comma_separated(value)
         if overwrite or not getattr(comic, field, ""):
             setattr(comic, field, value)
+    from comicdesk.services.comicvine_mapping import concept_names_for_tags
+
+    source_concepts = volume.concepts if volume.concepts else volume.concept_credits
+    tag_names = concept_names_for_tags(source_concepts)
+    if tag_names and (overwrite or not comic.tags):
+        comic.tags = format_comma_separated(", ".join(tag_names))
     if volume.count_of_issues and (overwrite or not comic.count):
         comic.count = volume.count_of_issues
 

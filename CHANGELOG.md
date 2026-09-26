@@ -4,6 +4,13 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.11.2] - 2026-09-26
+
+### Fixed
+
+- Comic Vine enrichment: ComicInfo Tags omit variant artist, variant cover, and variant theme concepts (including titled lines such as `Variant Cover: …`)
+- Comic Vine enrichment: `artist` credits fill Penciller and Inker when neither role is credited separately
+
 ## [1.11.1] - 2026-09-24
 
 ### Fixed

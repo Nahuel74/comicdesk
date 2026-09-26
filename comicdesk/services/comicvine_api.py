@@ -153,8 +153,8 @@ ISSUE_FIELDS = ("id,volume,issue_number,name,cover_date,store_date,site_detail_u
                 "publisher,genres,character_credits,concept_credits,location_credits,"
                 "person_credits,story_arc_credits,team_credits,age_rating,image")
 VOLUME_FIELDS = ("id,name,start_year,count_of_issues,site_detail_url,description,"
-                 "publisher,genres,characters,character_credits,concept_credits,location_credits,"
-                 "person_credits,team_credits,age_rating,image")
+                 "publisher,genres,characters,character_credits,concepts,concept_credits,"
+                 "location_credits,person_credits,team_credits,age_rating,image")
 PUBLISHER_FIELDS = ("id,name,aliases")
 
 

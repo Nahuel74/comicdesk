@@ -19,6 +19,28 @@ def reference_names(values) -> list[str]:
     return result
 
 
+_EXCLUDED_CONCEPT_TAG_PREFIXES = ("variant artist", "variant cover", "variant theme")
+
+
+def _concept_excluded_from_tags(name: str) -> bool:
+    folded = str(name).strip().casefold()
+    if not folded:
+        return True
+    return any(folded.startswith(prefix) for prefix in _EXCLUDED_CONCEPT_TAG_PREFIXES)
+
+
+def concept_names_for_tags(concepts) -> list[str]:
+    """Return Comic Vine concept names suitable for ComicInfo Tags."""
+    result = []
+    for name in concepts or []:
+        text = str(name).strip()
+        if _concept_excluded_from_tags(text):
+            continue
+        if text not in result:
+            result.append(text)
+    return result
+
+
 def credits_by_role(credits) -> dict[str, list[str]]:
     """Group people by their Comic Vine role while accepting API variants."""
     roles = {"writer": [], "penciller": [], "inker": [], "colorist": [],
@@ -29,6 +51,7 @@ def credits_by_role(credits) -> dict[str, list[str]]:
         "letterer": "letterer", "cover": "cover_artist", "cover artist": "cover_artist",
         "cover_artist": "cover_artist", "editor": "editor", "translator": "translator",
     }
+    artist_names: list[str] = []
     for credit in credits or []:
         if not isinstance(credit, dict):
             continue
@@ -40,9 +63,15 @@ def credits_by_role(credits) -> dict[str, list[str]]:
             token = token.strip()
             if not token:
                 continue
+            if token in ("artist", "artists") and name not in artist_names:
+                artist_names.append(name)
+                continue
             target = aliases.get(token)
             if target and name not in roles[target]:
                 roles[target].append(name)
+    if not roles["penciller"] and not roles["inker"] and artist_names:
+        roles["penciller"] = list(artist_names)
+        roles["inker"] = list(artist_names)
     return roles
 
 
@@ -72,13 +101,14 @@ def apply_issue_metadata(comic: Comic, issue: ComicVineIssue, *, overwrite=False
     }
     values.update({field: ", ".join(names) for field, names in credits_by_role(issue.person_credits).items()})
     _fill_fields(comic, _format_list_fields(values), overwrite)
-    if issue.concept_credits:
+    tag_names = concept_names_for_tags(issue.concept_credits)
+    if tag_names:
         from comicdesk.services.comicinfo import format_comma_separated
 
         _set_field(
             comic,
             "tags",
-            format_comma_separated(", ".join(issue.concept_credits)),
+            format_comma_separated(", ".join(tag_names)),
             overwrite,
         )
     if issue.volume_count_of_issues:
