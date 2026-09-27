@@ -53,7 +53,32 @@ def comic_has_identification_lookup_key(comic: Comic) -> bool:
     return bool(series_name)
 
 
-def identify_comic(comic: Comic, client, *, issues_only: bool = False) -> IdentificationResult:
+def _finalize_with_cover_hash(
+    comic: Comic,
+    result: IdentificationResult,
+    *,
+    use_cover_hash: bool,
+) -> IdentificationResult:
+    if not use_cover_hash or result.status != STATUS_CANDIDATES:
+        return result
+    issues = result.issues
+    if len(issues) < 2 or not comic.has_local_file:
+        return result
+    from comicdesk.services.cover_match import pick_closest_cover_candidate
+
+    picked = pick_closest_cover_candidate(Path(comic.path), issues)
+    if picked is None:
+        return result
+    return IdentificationResult(STATUS_EXACT, issue=picked, issues=[picked])
+
+
+def identify_comic(
+    comic: Comic,
+    client,
+    *,
+    issues_only: bool = False,
+    use_cover_hash: bool = False,
+) -> IdentificationResult:
     """Identify a comic without mutating it or auto-picking ambiguous hits."""
     parsed = parse_comic_filename(comic.path)
     hint_year = _publication_year_hint(comic, parsed)
@@ -83,8 +108,16 @@ def identify_comic(comic: Comic, client, *, issues_only: bool = False) -> Identi
                     issue = hydrated
                 return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
             if narrowed:
-                return IdentificationResult(STATUS_CANDIDATES, issues=narrowed)
-            return IdentificationResult(STATUS_CANDIDATES, issues=listed)
+                return _finalize_with_cover_hash(
+                    comic,
+                    IdentificationResult(STATUS_CANDIDATES, issues=narrowed),
+                    use_cover_hash=use_cover_hash,
+                )
+            return _finalize_with_cover_hash(
+                comic,
+                IdentificationResult(STATUS_CANDIDATES, issues=listed),
+                use_cover_hash=use_cover_hash,
+            )
         return IdentificationResult(STATUS_EMPTY)
 
     if series_name and issue_number:
@@ -92,7 +125,7 @@ def identify_comic(comic: Comic, client, *, issues_only: bool = False) -> Identi
             client, series_name, issue_number, hint_year
         )
         if by_volume.status != STATUS_EMPTY:
-            return by_volume
+            return _finalize_with_cover_hash(comic, by_volume, use_cover_hash=use_cover_hash)
 
     title = (comic.title or "").strip()
     queries = []
@@ -130,7 +163,9 @@ def identify_comic(comic: Comic, client, *, issues_only: bool = False) -> Identi
             searched = client.search_issue(query)
         except Exception:
             continue
-        result = _from_issue_search(searched, query_series, query_issue, hint_year)
+        result = _from_issue_search(
+            searched, query_series, query_issue, hint_year, comic, use_cover_hash
+        )
         if result.status == STATUS_EXACT and result.issue is not None:
             hydrated = _hydrate_exact_issue(client, result.issue)
             if hydrated is not None:
@@ -271,6 +306,8 @@ def _from_issue_search(
     series_name: str,
     issue_number: str,
     hint_year: str = "",
+    comic: Comic | None = None,
+    use_cover_hash: bool = False,
 ) -> IdentificationResult:
     matches = [issue for issue in results if _series_matches(issue.series_name, series_name)]
     if issue_number:
@@ -283,9 +320,15 @@ def _from_issue_search(
         issue = matches[0]
         return IdentificationResult(STATUS_EXACT, issue=issue, issues=[issue])
     if matches:
-        return IdentificationResult(STATUS_CANDIDATES, issues=matches)
+        result = IdentificationResult(STATUS_CANDIDATES, issues=matches)
+        if comic is not None:
+            return _finalize_with_cover_hash(comic, result, use_cover_hash=use_cover_hash)
+        return result
     if results and not issue_number:
-        return IdentificationResult(STATUS_CANDIDATES, issues=results)
+        result = IdentificationResult(STATUS_CANDIDATES, issues=results)
+        if comic is not None:
+            return _finalize_with_cover_hash(comic, result, use_cover_hash=use_cover_hash)
+        return result
     return IdentificationResult(STATUS_EMPTY)
 
 

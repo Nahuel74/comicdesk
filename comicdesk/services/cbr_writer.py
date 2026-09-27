@@ -29,6 +29,11 @@ from comicdesk.services.cbz_writer import (
 _COMICINFO_LOWER = COMICINFO_NAME.lower()
 
 
+def convert_cbr_to_cbz_preserve_metadata(comic: Comic) -> Path:
+    """Convert .cbr to .cbz keeping ComicInfo from the Comic model (no metadata edit)."""
+    return write_cbr_as_cbz_metadata(comic)
+
+
 def write_cbr_as_cbz_metadata(comic: Comic) -> Path:
     """Create a CBZ next to the CBR with metadata, then remove the CBR on success."""
     cbr_path = Path(comic.path)

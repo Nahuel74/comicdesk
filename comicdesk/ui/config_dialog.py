@@ -108,6 +108,14 @@ class ConfigDialog(QDialog):
         getcomics_folder_layout.addWidget(self.getcomics_folder_btn)
         form.addRow(getcomics_folder_label, getcomics_folder_layout)
 
+        self.cover_hash_checkbox = QCheckBox(
+            "Use cover image hash to disambiguate Comic Vine candidates"
+        )
+        self.cover_hash_checkbox.setChecked(
+            bool(getattr(self.config, "enable_cover_hash", True))
+        )
+        form.addRow("", self.cover_hash_checkbox)
+
         layout.addLayout(form)
 
         btn_layout = QHBoxLayout()
@@ -205,4 +213,10 @@ class ConfigDialog(QDialog):
             last_cbl_directory=self.config.last_cbl_directory,
             getcomics_download_folder=self.getcomics_folder_input.text().strip(),
             theme=normalize_theme(self.theme_combo.currentData()),
+            last_rename_template=self.config.last_rename_template,
+            last_rename_folder_template=self.config.last_rename_folder_template,
+            last_rename_page_template=self.config.last_rename_page_template,
+            rename_issue_pad_width=self.config.rename_issue_pad_width,
+            rename_page_pad_width=self.config.rename_page_pad_width,
+            enable_cover_hash=self.cover_hash_checkbox.isChecked(),
         )

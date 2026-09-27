@@ -272,6 +272,56 @@ def application_stylesheet(theme: str = "dark") -> str:
             border: 2px solid {c['accent']};
             color: {c['text']};
         }}
+        QWidget#secondaryNav {{
+            background-color: {c['surface']};
+            border-bottom: 1px solid {c['border']};
+        }}
+        QToolButton#subNavButton {{
+            border: 1px solid {c['border']};
+            border-radius: 6px;
+            padding: 6px 12px;
+            color: {c['text_secondary']};
+            background-color: {c['surface_alt']};
+        }}
+        QToolButton#subNavButton:hover {{
+            background-color: {c['hover']};
+            color: {c['text']};
+        }}
+        QToolButton#subNavButton[active="true"] {{
+            background-color: {c['selection']};
+            border-color: {c['accent']};
+            color: {c['text']};
+            font-weight: 600;
+        }}
+        QWidget#organizeBar {{
+            background-color: {c['surface']};
+            border-bottom: 1px solid {c['border']};
+        }}
+        QLabel#organizeBarTitle {{
+            color: {c['text']};
+            font-weight: 600;
+        }}
+        QLabel#organizeBarHint {{
+            color: {c['muted']};
+            font-size: 11px;
+        }}
+        QToolButton#organizeButton {{
+            border: 1px solid {c['border_strong']};
+            border-radius: 6px;
+            padding: 6px 12px;
+            color: {c['text']};
+            background-color: {c['surface_alt']};
+            font-weight: 600;
+        }}
+        QToolButton#organizeButton:hover {{
+            background-color: {c['hover']};
+            border-color: {c['accent']};
+        }}
+        QToolButton#organizeButton::menu-indicator {{
+            subcontrol-position: right center;
+            subcontrol-origin: padding;
+            left: 4px;
+        }}
         QLabel#navBadge {{
             background-color: {c['accent']};
             color: white;
@@ -281,6 +331,13 @@ def application_stylesheet(theme: str = "dark") -> str:
             font-weight: bold;
             margin-left: -8px;
             margin-top: -4px;
+        }}
+        QLabel#startupBanner {{
+            background-color: {c['surface']};
+            color: {c['text']};
+            border-bottom: 1px solid {c['border']};
+            padding: 8px 16px;
+            font-size: 11pt;
         }}
         QLabel#inlineHint {{
             background-color: {c['changed_field']};

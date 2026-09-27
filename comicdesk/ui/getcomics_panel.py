@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QProgressBar,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -169,6 +170,7 @@ class GetComicsPanel(QWidget):
         dest_row.addWidget(self.dest_input, 1)
         dest_row.addWidget(self.dest_browse_button)
         outer.addLayout(dest_row)
+        self._dest_row_label = dest_row.itemAt(0).widget()
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -254,11 +256,24 @@ class GetComicsPanel(QWidget):
 
         splitter.addWidget(right)
 
-        wishlist_panel = QWidget()
-        wishlist_panel.setMinimumWidth(260)
-        wishlist_layout = QVBoxLayout(wishlist_panel)
-        wishlist_layout.setContentsMargins(SPACING["sm"], 0, 0, 0)
-        wishlist_layout.addWidget(QLabel("Wishlist"))
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([320, 520])
+
+        search_page = QWidget()
+        search_layout = QVBoxLayout(search_page)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.addWidget(splitter, 1)
+
+        self._wishlist_page = QWidget()
+        self._wishlist_page.setObjectName("wishlistPage")
+        wishlist_layout = QVBoxLayout(self._wishlist_page)
+        wishlist_layout.setContentsMargins(SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["md"])
+        wishlist_hint = QLabel(
+            "Missing issues from Series gaps and other CBL references. Search or download via GetComics."
+        )
+        wishlist_hint.setWordWrap(True)
+        wishlist_layout.addWidget(wishlist_hint)
         self.wishlist_count_label = QLabel("0 items")
         wishlist_layout.addWidget(self.wishlist_count_label)
         self.wishlist_table = QTableWidget(0, 4)
@@ -289,14 +304,47 @@ class GetComicsPanel(QWidget):
         secondary_wish.addWidget(self.wishlist_remove_button)
         secondary_wish.addWidget(self.wishlist_clear_button)
         wishlist_layout.addLayout(secondary_wish)
-        splitter.addWidget(wishlist_panel)
 
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 3)
-        splitter.setStretchFactor(2, 2)
-        splitter.setSizes([280, 480, 300])
-        outer.addWidget(splitter, 1)
+        self._content_stack = QStackedWidget()
+        self._content_stack.addWidget(search_page)
+        self._content_stack.addWidget(self._wishlist_page)
+        outer.addWidget(self._content_stack, 1)
+        self._search_row_widgets = (
+            self.criterion_combo,
+            self.query_input,
+            self.search_button,
+            self.prev_page_button,
+            self.page_label,
+            self.next_page_button,
+            self.dest_input,
+            self.dest_browse_button,
+        )
+        self._results_splitter = splitter
         self.apply_theme(self._theme)
+        self.set_acquire_view_mode("search")
+
+    def set_acquire_view_mode(self, mode: str) -> None:
+        """Show search UI, wishlist-only UI, or hide (queue page)."""
+        if mode == "hidden":
+            self.hide()
+            return
+        self.show()
+        if mode == "wishlist":
+            self._content_stack.setCurrentWidget(self._wishlist_page)
+            self.title_label.setText("Wishlist")
+            self._set_search_chrome_visible(False)
+            self._refresh_wishlist_table()
+        else:
+            self._content_stack.setCurrentIndex(0)
+            self.title_label.setText("Search GetComics")
+            self._set_search_chrome_visible(True)
+
+    def _set_search_chrome_visible(self, visible: bool) -> None:
+        self.title_label.setVisible(True)
+        for widget in self._search_row_widgets:
+            widget.setVisible(visible)
+        if self._dest_row_label is not None:
+            self._dest_row_label.setVisible(visible)
 
     def apply_theme(self, theme: str) -> None:
         """Re-apply visual tokens for the active theme."""
@@ -734,6 +782,7 @@ class GetComicsPanel(QWidget):
         if not books:
             QMessageBox.information(self, "Wishlist", "Select a wishlist item to search.")
             return
+        self.set_acquire_view_mode("search")
         book = books[0]
         query = build_search_query(book)
         self.query_input.setText(query)

@@ -4,6 +4,34 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+### Added
+
+- Startup feedback: window appears immediately with status-bar progress, in-app banner during first library scan, and timestamped `comicdesk.startup` logs (set `COMICDESK_LOG_LEVEL=DEBUG` for more detail)
+- **Shell**: four primary areas (Collection, Issue, Lists, Acquire) with secondary sub-navigation instead of five top-level tabs
+- **Collection**: Series gaps view (missing issue numbers from ComicInfo Count) and Insights summary; **Organize** menu on Browse for rename, metadata refresh, CBR→CBZ conversion, and list actions
+- **Lists**: **From arc** imports Comic Vine story arcs into the CBL editor (matched local files + virtual rows)
+- **Acquire**: separate Search, Wishlist, and Queue sub-views
+- **Settings**: cover-hash disambiguation for Comic Vine candidates
+- **Services**: `series_gaps`, `library_insights`, `cover_match`, batch `convert_cbr_to_cbz_preserve_metadata`; Comic Vine `search_story_arcs` / `list_issues_for_story_arc`
+
+### Fixed
+
+- **Acquire → Wishlist**: dedicated full-page wishlist view (no broken splitter layout); Search and Wishlist share one GetComics panel in the stack (fixes empty/broken wishlist after redirect)
+### Removed
+
+- **Acquire → Pull** list, `pull_list_panel`, and `followed_series` persistence
+- **Metron** integration (`metron_api`, settings fields)
+- **GCD** integration (`gcd_api`, `gcd_enrichment`, settings fields)
+
+### Changed
+
+- **Collection → Browse**: library tools bar replaces the plain Organize control; menu actions run even when toolbar buttons are hidden
+- **Sub-navigation**: segmented tabs plus a short description under each primary area (Browse, Series, etc.)
+- **Series gaps**: **Add all missing to wishlist** queues every gap across the table
+- Folder sidebar attaches to Collection → Browse and Issue workflows (shared widget)
+- **From arc**: story arc search tries several `story_arcs/` name filters (sub-phrases) and ranks fuzzy token matches; import uses one `story_arc` request (no per-issue hydration); search/import buttons disable with progress bars while busy
+- Metadata search and batch refresh honor `enable_cover_hash`
+
 ## [1.11.2] - 2026-09-26
 
 ### Fixed

@@ -6,22 +6,21 @@ from PySide6.QtWidgets import QButtonGroup, QHBoxLayout, QLabel, QToolButton, QW
 from comicdesk.ui.layout.breakpoints import is_nav_compact
 from comicdesk.ui.theme import SPACING
 
-NAV_LIBRARY = "library"
-NAV_METADATA = "metadata"
-NAV_PAGES = "pages"
+NAV_COLLECTION = "collection"
+NAV_ISSUE = "issue"
 NAV_LISTS = "lists"
 NAV_ACQUIRE = "acquire"
 
+# Legacy aliases for tests and callers
+NAV_LIBRARY = NAV_COLLECTION
+NAV_METADATA = NAV_ISSUE
+NAV_PAGES = NAV_ISSUE
+
 _NAV_ITEMS = (
-    (NAV_LIBRARY, "Library", "Browse comic folders and enrichment status"),
-    (NAV_METADATA, "Metadata", "Edit ComicInfo and Comic Vine data"),
-    (
-        NAV_PAGES,
-        "Pages",
-        "Browse issue pages and remove images that are not part of the issue",
-    ),
-    (NAV_LISTS, "Lists", "CBL reading lists and reconciliation"),
-    (NAV_ACQUIRE, "Acquire", "GetComics search, wishlist, and downloads"),
+    (NAV_COLLECTION, "Collection", "Browse, series gaps, and library insights"),
+    (NAV_ISSUE, "Issue", "Metadata and page tools for the selected file"),
+    (NAV_LISTS, "Lists", "CBL reading lists and story arcs"),
+    (NAV_ACQUIRE, "Acquire", "GetComics search, wishlist, and download queue"),
 )
 
 
@@ -69,8 +68,8 @@ class PrimaryNav(QWidget):
             layout.addWidget(host)
 
         layout.addStretch()
-        self._buttons[NAV_LIBRARY].setChecked(True)
-        self._set_active(NAV_LIBRARY)
+        self._buttons[NAV_COLLECTION].setChecked(True)
+        self._set_active(NAV_COLLECTION)
 
     def _on_clicked(self, nav_id: str) -> None:
         self._set_active(nav_id)
@@ -83,13 +82,24 @@ class PrimaryNav(QWidget):
             button.style().polish(button)
 
     def set_current(self, nav_id: str) -> None:
+        if nav_id in (NAV_LIBRARY, NAV_METADATA, NAV_PAGES):
+            nav_id = self._legacy_to_primary(nav_id)
         button = self._buttons.get(nav_id)
         if button is None:
             return
         button.setChecked(True)
         self._set_active(nav_id)
 
+    @staticmethod
+    def _legacy_to_primary(nav_id: str) -> str:
+        if nav_id in (NAV_LIBRARY, "library"):
+            return NAV_COLLECTION
+        if nav_id in (NAV_METADATA, NAV_PAGES, "metadata", "pages"):
+            return NAV_ISSUE
+        return nav_id
+
     def set_attention(self, nav_id: str, active: bool, count: int = 0) -> None:
+        nav_id = self._legacy_to_primary(nav_id)
         button = self._buttons.get(nav_id)
         badge = self._badges.get(nav_id)
         if button is None or badge is None:
@@ -112,6 +122,6 @@ class PrimaryNav(QWidget):
         for nav_id, label in ((n[0], n[1]) for n in _NAV_ITEMS):
             button = self._buttons[nav_id]
             if compact:
-                button.setText(label[:3])
+                button.setText(label[:4])
             else:
                 button.setText(label)

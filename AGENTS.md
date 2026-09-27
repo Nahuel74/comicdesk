@@ -18,7 +18,7 @@ No linter, formatter, or type checker is configured.
 
 ## Stack
 
-- Python 3.14, PySide6, httpx, beautifulsoup4, cloudscraper, rarfile (CBR read/convert; needs system `unrar`/`unar` or `UNRAR_TOOL`)
+- Python 3.14, PySide6, httpx, beautifulsoup4, cloudscraper, rarfile (CBR read/convert; needs system `unrar`/`unar` or `UNRAR_TOOL`), Pillow + ImageHash (cover-hash identification)
 - `h2` in `requirements.txt` is unused at runtime (`http2=False` in `comicvine_api.py`)
 
 ## Packaging
@@ -55,17 +55,18 @@ bash packaging/verify_build.sh
 | `last_rename_page_template` | str | `""` |
 | `rename_issue_pad_width` | int | `0` — fallback leading zeros for `{Number}` when ComicInfo Count is empty |
 | `rename_page_pad_width` | int | `0` — fallback leading zeros for `{Page}` in bulk archive page rename |
+| `enable_cover_hash` | bool | `True` — disambiguate CV candidates via cover phash |
 
 ### UI (primary nav)
 
-| Tab | Modules |
-|-----|---------|
-| Library | `folder_panel` (sidebar), `comic_list`, `comic_list_workers` |
-| Metadata | `cbz_metadata_panel`, `cbz_metadata_workers`, `metadata_instance_model` |
-| Lists | `reading_list_panel`, `reading_list_header`, `add_reading_list_issue_dialog`, `cbl_preview` |
-| Acquire | `getcomics_panel`, `download_queue_panel`, `acquire_page` |
+| Area | Sub-views | Modules |
+|------|-----------|---------|
+| Collection | Browse, Series, Insights | `comic_list`, `series_panel`, `insights_panel`, `series_gaps` |
+| Issue | Metadata, Pages | `cbz_metadata_panel`, `pages_panel`, shared `folder_panel` sidebar |
+| Lists | Editor, From arc | `reading_list_panel`, `from_arc_panel`, `arc_list_import`, `comicvine_api` |
+| Acquire | Search, Wishlist, Queue | `getcomics_panel`, `download_queue_panel` |
 
-Shell: `ui/shell/app_shell.py`, `primary_nav.py`. Background workers in `*_workers.py`.
+Shell: `ui/shell/app_shell.py`, `primary_nav.py`, `secondary_nav.py`. Background workers in `*_workers.py`.
 
 ### Services (selected)
 

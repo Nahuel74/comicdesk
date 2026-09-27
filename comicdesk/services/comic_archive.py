@@ -153,6 +153,16 @@ def scan_comics(
     return comics
 
 
+def read_first_image_bytes(path: Path) -> bytes:
+    """Return bytes for the first image page in a comic archive."""
+    from comicdesk.services.comic_pages import list_image_pages, read_image_member_bytes
+
+    pages = list_image_pages(path)
+    if not pages:
+        return b""
+    return read_image_member_bytes(path, pages[0])
+
+
 def write_comic_metadata(comic: Comic) -> Path:
     """Persist metadata; CBR inputs are converted to CBZ on disk."""
     path = Path(comic.path)

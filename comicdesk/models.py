@@ -235,6 +235,15 @@ class ComicVineVolume:
     image_url: str = ""
 
 
+@dataclass(frozen=True)
+class ComicVineStoryArc:
+    """Story arc summary from Comic Vine search."""
+
+    id: str
+    name: str
+    deck: str = ""
+
+
 @dataclass
 class ComicVineIssue:
     """Issue data from Comic Vine API."""

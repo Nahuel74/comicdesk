@@ -6,10 +6,10 @@ ComicDesk is a PySide6 desktop app for local comic libraries (`.cbz`, `.cbr`): b
 
 ## Features
 
-- **Library** — folder browser, comic archive scan, search, metadata-status filter, bulk rename, add comics to a reading list
-- **Metadata** — transactional ComicInfo editing, online metadata search, per-folder instance list
-- **Lists** — import/export CBL, sort and reorder, live XML preview, manual **Add issue** (with metadata lookup), entries with or without a local file
-- **Acquire** — GetComics search, wishlist, sequential download queue; open the issue page or a provider link in your browser
+- **Collection** — Browse (folder scan, search, **Organize** menu for rename/metadata/CBR→CBZ), **Series** gaps, **Insights**
+- **Issue** — Metadata editor and **Pages** tools for the selected archive (shared folder sidebar)
+- **Lists** — CBL editor plus **From arc** (Comic Vine story arcs)
+- **Acquire** — GetComics **Search**, **Wishlist**, and download **Queue**
 
 Themes (dark/light), Comic Vine API client with cache, and atomic config/archive/wishlist writes.
 

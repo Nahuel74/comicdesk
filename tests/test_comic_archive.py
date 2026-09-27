@@ -63,6 +63,21 @@ def test_iter_comic_files_finds_cbz_and_cbr(tmp_path):
     assert names == {"a.cbz", "b.cbr"}
 
 
+def test_scan_comics_empty_folder_returns_without_hanging(tmp_path):
+    (tmp_path / "notes.txt").write_text("not a comic", encoding="utf-8")
+    progress_calls: list[tuple[int, int, str]] = []
+
+    comics = scan_comics(
+        tmp_path,
+        progress=lambda current, total, name: progress_calls.append(
+            (current, total, name)
+        ),
+    )
+
+    assert comics == []
+    assert any("Searching" in message for _, _, message in progress_calls)
+
+
 def test_scan_folder_includes_cbr(tmp_path):
     cbz = tmp_path / "one.cbz"
     with zipfile.ZipFile(cbz, "w") as archive:

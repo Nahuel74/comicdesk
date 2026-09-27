@@ -1,5 +1,6 @@
 """Comic Vine API client with caching and rate limiting."""
 
+import difflib
 import gzip
 import time
 import json
@@ -12,7 +13,7 @@ from typing import Optional
 
 import httpx
 
-from comicdesk.models import ComicVineIssue, ComicVineVolume
+from comicdesk.models import ComicVineIssue, ComicVineStoryArc, ComicVineVolume
 from comicdesk.config import CONFIG_DIR
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,22 @@ API_BASE = "https://comicvine.gamespot.com/api"
 CACHE_DIR = CONFIG_DIR / "cache"
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
 SEARCH_RESULT_LIMIT = 20
+
+
+def normalize_cv_volume_id(value: str) -> str:
+    """Return the numeric Comic Vine volume id (strip a leading 4050- prefix)."""
+    text = str(value or "").strip()
+    if text.lower().startswith("4050-"):
+        return text[5:].strip()
+    return text
+
+
+def normalize_cv_story_arc_id(value: str) -> str:
+    """Return the numeric Comic Vine story arc id (strip a leading 4045- prefix)."""
+    text = str(value or "").strip()
+    if text.lower().startswith("4045-"):
+        return text[5:].strip()
+    return text
 
 
 class ComicVineError(Exception):
@@ -47,6 +64,81 @@ def _image_url_from_result(result: dict) -> str:
         if url and "no-image" not in url.casefold():
             return url.replace("http://", "https://", 1)
     return ""
+
+
+def _story_arc_search_phrases(query: str) -> list[str]:
+    """Build filter phrases from full query down to two-word windows."""
+    text = (query or "").strip()
+    if not text:
+        return []
+    words = text.split()
+    ordered: list[str] = [text]
+    for size in range(len(words) - 1, 1, -1):
+        for index in range(len(words) - size + 1):
+            ordered.append(" ".join(words[index : index + size]))
+    seen: set[str] = set()
+    phrases: list[str] = []
+    for phrase in ordered:
+        key = phrase.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        phrases.append(phrase)
+    return phrases
+
+
+def _story_arc_name_tokens(name: str) -> list[str]:
+    return [token for token in re.split(r"\W+", name.casefold()) if len(token) >= 3]
+
+
+def _story_arc_token_matches(query_token: str, name_tokens: list[str]) -> bool:
+    if query_token in name_tokens:
+        return True
+    if len(query_token) < 4:
+        return False
+    for candidate in name_tokens:
+        if len(candidate) < 4:
+            continue
+        if difflib.SequenceMatcher(None, query_token, candidate).ratio() >= 0.72:
+            return True
+    return False
+
+
+def _story_arc_relevance(arc: ComicVineStoryArc, query: str) -> float:
+    name = arc.name.casefold()
+    q = query.casefold()
+    score = 0.0
+    if q in name:
+        score += 200.0
+    query_tokens = [t for t in re.split(r"\W+", q) if len(t) >= 3]
+    name_tokens = _story_arc_name_tokens(arc.name)
+    for token in query_tokens:
+        if _story_arc_token_matches(token, name_tokens):
+            score += 15.0
+    if query_tokens:
+        score += 5.0 * sum(
+            1 for token in query_tokens if _story_arc_token_matches(token, name_tokens)
+        ) / len(query_tokens)
+    return score
+
+
+def _parse_story_arc_row(row: dict) -> ComicVineStoryArc | None:
+    if not isinstance(row, dict):
+        return None
+    raw_id = row.get("id")
+    if raw_id is None or raw_id == "":
+        return None
+    arc_id = str(raw_id).strip()
+    name = str(row.get("name") or "").strip()
+    if not arc_id or not name:
+        return None
+    if not arc_id.lower().startswith("4045-"):
+        arc_id = f"4045-{arc_id}"
+    return ComicVineStoryArc(
+        id=arc_id,
+        name=name,
+        deck=str(row.get("deck") or "").strip(),
+    )
 
 
 def _parse_issue_response(result: dict) -> ComicVineIssue:
@@ -149,6 +241,7 @@ def _response_json(response: httpx.Response) -> dict:
     return data
 
 
+STORY_ARC_FIELDS = "id,name,deck"
 ISSUE_FIELDS = ("id,volume,issue_number,name,cover_date,store_date,site_detail_url,description,deck,"
                 "publisher,genres,character_credits,concept_credits,location_credits,"
                 "person_credits,story_arc_credits,team_credits,age_rating,image")
@@ -251,7 +344,7 @@ class ComicVineClient:
     @staticmethod
     def _should_cache_response(endpoint: str, data: dict) -> bool:
         results = data.get("results")
-        if endpoint in ("search", "issues/", "volumes/") and isinstance(results, list) and not results:
+        if endpoint in ("search", "issues/", "volumes/", "story_arcs/") and isinstance(results, list) and not results:
             return False
         return True
 
@@ -269,7 +362,7 @@ class ComicVineClient:
         if self.cache_enabled and cache_key in self._cache:
             cached = self._cache[cache_key]
             results = cached.get("results") if isinstance(cached, dict) else None
-            if endpoint in ("search", "issues/", "volumes/") and isinstance(results, list) and not results:
+            if endpoint in ("search", "issues/", "volumes/", "story_arcs/") and isinstance(results, list) and not results:
                 pass
             else:
                 logger.debug("comicvine_request cache_hit endpoint=%s", endpoint)
@@ -393,7 +486,7 @@ class ComicVineClient:
 
     def get_volume(self, volume_id: str) -> ComicVineVolume:
         """Get volume details by ID."""
-        volume_id = str(volume_id or "").strip()
+        volume_id = normalize_cv_volume_id(volume_id)
         cached = self._volume_cache.get(volume_id)
         if cached is not None:
             return cached
@@ -507,8 +600,8 @@ class ComicVineClient:
         self, volume_id: str, issue_number: str | None = None
     ) -> list[ComicVineIssue]:
         """List issues for a volume, optionally filtered by issue number."""
-        volume_id = str(volume_id).strip()
-        filter_parts = [f"volume:{volume_id}"]
+        volume_id = normalize_cv_volume_id(volume_id)
+        filter_parts = [f"volume:4050-{volume_id}"]
         if issue_number:
             filter_parts.append(f"issue_number:{issue_number}")
         data = self._request("issues/", {
@@ -522,6 +615,72 @@ class ComicVineClient:
         if not isinstance(results, list):
             raise ComicVineError("Comic Vine returned invalid issue results")
         return [_parse_issue_response(r) for r in results]
+
+    def search_story_arcs(self, query: str, limit: int = 20) -> list[ComicVineStoryArc]:
+        """Search Comic Vine story arcs by name (partial phrases and fuzzy token match)."""
+        text = (query or "").strip()
+        if not text:
+            return []
+        by_id: dict[str, ComicVineStoryArc] = {}
+        for phrase in _story_arc_search_phrases(text):
+            for arc in self._story_arcs_from_filter(phrase, limit):
+                by_id[arc.id] = arc
+        if not by_id:
+            data = self._request(
+                "search",
+                {"query": text, "resources": "story_arc", "limit": limit},
+            )
+            results = data.get("results") or []
+            if isinstance(results, list):
+                for row in results:
+                    parsed = _parse_story_arc_row(row)
+                    if parsed is not None:
+                        by_id[parsed.id] = parsed
+        ranked = sorted(
+            by_id.values(),
+            key=lambda arc: _story_arc_relevance(arc, text),
+            reverse=True,
+        )
+        return ranked[:limit]
+
+    def _story_arcs_from_filter(self, name: str, limit: int) -> list[ComicVineStoryArc]:
+        data = self._request(
+            "story_arcs/",
+            {
+                "filter": f"name:{name}",
+                "field_list": STORY_ARC_FIELDS,
+                "limit": limit,
+            },
+        )
+        results = data.get("results") or []
+        if not isinstance(results, list):
+            return []
+        arcs: list[ComicVineStoryArc] = []
+        for row in results:
+            parsed = _parse_story_arc_row(row)
+            if parsed is not None:
+                arcs.append(parsed)
+        return arcs
+
+    def story_arc_issue_items(self, arc_id: str):
+        """Reading-list rows for arc issues using one story_arc API call."""
+        from comicdesk.services.arc_list_import import arc_items_from_story_arc_stubs
+
+        numeric = normalize_cv_story_arc_id(arc_id)
+        if not numeric:
+            return []
+        data = self._request(
+            f"story_arc/4045-{numeric}",
+            {"field_list": "id,name,issues"},
+        )
+        payload = data.get("results") or {}
+        if not isinstance(payload, dict):
+            return []
+        stubs = payload.get("issues") or []
+        if not isinstance(stubs, list):
+            return []
+        arc_title = str(payload.get("name") or "")
+        return arc_items_from_story_arc_stubs(stubs, arc_title=arc_title)
 
     def validate_api_key(self) -> bool:
         """Validate the API key by making a test request."""

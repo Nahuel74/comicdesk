@@ -1,6 +1,23 @@
-"""Application shell and navigation."""
+"""Application shell: navigation and workflow pages."""
 
 from comicdesk.ui.shell.app_shell import AppShell
-from comicdesk.ui.shell.primary_nav import NAV_ACQUIRE, NAV_LIBRARY, NAV_LISTS, NAV_METADATA, NAV_PAGES
+from comicdesk.ui.shell.primary_nav import (
+    NAV_ACQUIRE,
+    NAV_COLLECTION,
+    NAV_ISSUE,
+    NAV_LIBRARY,
+    NAV_LISTS,
+    NAV_METADATA,
+    NAV_PAGES,
+)
 
-__all__ = ["AppShell", "NAV_ACQUIRE", "NAV_LIBRARY", "NAV_LISTS", "NAV_METADATA", "NAV_PAGES"]
+__all__ = [
+    "AppShell",
+    "NAV_ACQUIRE",
+    "NAV_COLLECTION",
+    "NAV_ISSUE",
+    "NAV_LIBRARY",
+    "NAV_LISTS",
+    "NAV_METADATA",
+    "NAV_PAGES",
+]

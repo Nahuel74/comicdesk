@@ -1,17 +1,10 @@
 """Entry point for ComicDesk application."""
 
 import sys
-import logging
 
-# Configure logging - only show warnings and errors
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(name)s - %(levelname)s - %(message)s",
-    stream=sys.stdout
-)
+from comicdesk.logging_config import configure_logging
 
-# Enable debug only for our app
-logging.getLogger("comicdesk").setLevel(logging.INFO)
+configure_logging()
 
 from comicdesk.app import run
 

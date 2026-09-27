@@ -37,14 +37,22 @@ class MetadataSearchWorker(QThread):
     finished = Signal(object)
     error = Signal(str)
 
-    def __init__(self, comic, api_key: str, cache_enabled: bool = True,
-                 token: int = 0, force_refresh: bool = False):
+    def __init__(
+        self,
+        comic,
+        api_key: str,
+        cache_enabled: bool = True,
+        token: int = 0,
+        force_refresh: bool = False,
+        use_cover_hash: bool = False,
+    ):
         super().__init__()
         self.comic = deepcopy(comic)
         self.api_key = str(api_key or "").strip()
         self.cache_enabled = bool(cache_enabled)
         self.token = token
         self.force_refresh = bool(force_refresh)
+        self.use_cover_hash = bool(use_cover_hash)
         self._cancelled = False
 
     def run(self):
@@ -60,7 +68,12 @@ class MetadataSearchWorker(QThread):
                 self.api_key,
                 cache_enabled=self.cache_enabled and not self.force_refresh,
             )
-            result = identify_comic(self.comic, client, issues_only=True)
+            result = identify_comic(
+                self.comic,
+                client,
+                issues_only=True,
+                use_cover_hash=self.use_cover_hash,
+            )
             if not self._cancelled:
                 self.finished.emit(result)
         except Exception as exc:  # workers must report recoverable failures

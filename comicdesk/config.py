@@ -48,6 +48,7 @@ class Config:
     last_rename_page_template: str = ""
     rename_issue_pad_width: int = 0
     rename_page_pad_width: int = 0
+    enable_cover_hash: bool = True
 
     def save(self) -> None:
         """Save config to file."""

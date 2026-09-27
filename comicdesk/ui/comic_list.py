@@ -1,5 +1,6 @@
 """Comic list panel with search, filtering, and library actions."""
 
+import logging
 import os
 from pathlib import Path
 
@@ -7,13 +8,14 @@ from PySide6.QtCore import QItemSelection, QItemSelectionModel, Signal, Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView, QDialog, QHeaderView, QLabel, QMenu, QProgressBar, QPushButton,
-    QTableView, QHBoxLayout, QMessageBox, QVBoxLayout, QWidget,
+    QTableView, QHBoxLayout, QMessageBox, QToolButton, QVBoxLayout, QWidget,
 )
 
 from comicdesk.models import Comic
 from comicdesk.services.identification import comic_has_identification_lookup_key
 from comicdesk.ui.comic_list_toolbar import ComicListToolbar
 from comicdesk.ui.comic_list_workers import (
+    CbrConvertWorker,
     FolderMetadataRefreshWorker,
     FolderRenameWorker,
     RenameWorker,
@@ -25,7 +27,9 @@ from comicdesk.ui.rename_files_dialog import RenameFilesDialog
 from comicdesk.ui.comic_table_model import ComicFilterProxyModel, ComicTableModel
 from comicdesk.ui.comic_selection import ComicSelection
 from comicdesk.ui.theme import button_stylesheet, muted_label_stylesheet, table_stylesheet
-from comicdesk.ui.widgets.responsive_action_bar import ResponsiveActionBar
+from comicdesk.ui.theme import menu_stylesheet
+
+logger = logging.getLogger(__name__)
 
 _UPDATE_METADATA_TOOLTIP = (
     "Identify on Comic Vine, apply enriched fields, and save each archive "
@@ -59,6 +63,7 @@ class ComicList(QWidget):
     """Panel displaying scanned comics without mutating the source list on filter."""
 
     comics_selected = Signal(list)
+    status_message = Signal(str)
     comic_focused = Signal(object)
     comic_edit_requested = Signal(object)
     comics_changed = Signal(list)
@@ -89,10 +94,6 @@ class ComicList(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        actions_row = QWidget()
-        actions_layout = QHBoxLayout(actions_row)
-        actions_layout.setContentsMargins(12, 8, 12, 8)
-        self.action_bar = ResponsiveActionBar()
         self.add_selected_btn = QPushButton("Add to list")
         self.add_selected_btn.setToolTip("Add the selected comics to the reading list")
         self.add_selected_btn.setEnabled(False)
@@ -117,13 +118,56 @@ class ComicList(QWidget):
         self.update_metadata_btn.setToolTip(_UPDATE_METADATA_TOOLTIP)
         self.update_metadata_btn.setEnabled(False)
         self.update_metadata_btn.clicked.connect(self._on_update_metadata)
-        self.action_bar.add_action(self.update_metadata_btn, "Update metadata")
-        self.action_bar.add_action(self.rename_btn, "Rename files")
-        self.action_bar.add_action(self.rename_folders_btn, "Rename folders")
-        self.action_bar.add_action(self.add_selected_btn, "Add to reading list")
-        self.action_bar.add_action(self.clear_selection_btn, "Clear selection")
-        actions_layout.addWidget(self.action_bar, 1)
-        layout.addWidget(actions_row)
+        self.convert_cbr_btn = QPushButton("Convert to CBZ…")
+        self.convert_cbr_btn.setToolTip(
+            "Convert selected .cbr files to .cbz preserving existing ComicInfo"
+        )
+        self.convert_cbr_btn.clicked.connect(self._on_convert_cbr)
+        self._organize_bar = QWidget()
+        self._organize_bar.setObjectName("organizeBar")
+        organize_row = QHBoxLayout(self._organize_bar)
+        organize_row.setContentsMargins(12, 8, 12, 8)
+        organize_row.setSpacing(8)
+        organize_title = QLabel("Library tools")
+        organize_title.setObjectName("organizeBarTitle")
+        organize_hint = QLabel("Rename, refresh metadata, convert archives, reading lists")
+        organize_hint.setObjectName("organizeBarHint")
+        organize_row.addWidget(organize_title)
+        organize_row.addWidget(organize_hint)
+        organize_row.addStretch()
+        self.organize_button = QToolButton()
+        self.organize_button.setObjectName("organizeButton")
+        self.organize_button.setText("Actions…")
+        self.organize_button.setToolTip("Open library file and folder operations")
+        self.organize_button.setPopupMode(QToolButton.InstantPopup)
+        self.organize_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.organize_button.setArrowType(Qt.ArrowType.DownArrow)
+        self._organize_menu = QMenu(self)
+        self._organize_action_buttons: list[QPushButton] = []
+        menu_items = (
+            (self.update_metadata_btn, "Update metadata…"),
+            (self.rename_btn, "Rename files…"),
+            (self.rename_folders_btn, "Rename folders…"),
+            (self.convert_cbr_btn, "Convert to CBZ…"),
+            None,
+            (self.add_selected_btn, "Add to reading list"),
+            (self.clear_selection_btn, "Clear selection"),
+        )
+        for entry in menu_items:
+            if entry is None:
+                self._organize_menu.addSeparator()
+                continue
+            button, label = entry
+            action = self._organize_menu.addAction(label)
+            action.setData(button)
+            handler = button.clicked
+            action.triggered.connect(
+                lambda checked=False, h=handler, b=button: self._run_organize_action(h, b)
+            )
+            self._organize_action_buttons.append(button)
+        self.organize_button.setMenu(self._organize_menu)
+        organize_row.addWidget(self.organize_button)
+        layout.addWidget(self._organize_bar)
         layout.addWidget(self.toolbar)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_context_menu)
@@ -148,13 +192,32 @@ class ComicList(QWidget):
             muted_label_stylesheet(theme) + " padding: 8px 12px;"
         )
         self.toolbar.apply_theme(theme)
-        self.action_bar.apply_theme(theme)
+        self._organize_menu.setStyleSheet(menu_stylesheet(theme))
+        self._sync_organize_menu()
+
+    def _run_organize_action(self, signal, button: QPushButton) -> None:
+        if not button.isEnabled():
+            hint = button.toolTip() or "This action is not available right now."
+            self.status_label.setText(hint)
+            self.status_message.emit(hint)
+            return
+        signal.emit()
+
+    def _sync_organize_menu(self) -> None:
+        for action in self._organize_menu.actions():
+            if action.isSeparator():
+                continue
+            button = action.data()
+            if button is not None:
+                action.setEnabled(button.isEnabled())
 
     def load_folder(self, path: Path):
         self.current_folder = path
+        logger.info("Library scan requested for %s", path)
         self._stop_scan_worker()
         self._set_scan_busy(True)
         self.status_label.setText("Loading library…")
+        self.status_message.emit(f"Scanning library: {path}…")
         self.worker = ScanWorker(path)
         worker = self.worker
         self._scan_finished_handler = lambda comics: self._on_scan_complete(comics, worker)
@@ -255,11 +318,13 @@ class ComicList(QWidget):
             self.scan_progress.setRange(0, total)
             self.scan_progress.setValue(current)
         if current <= 0:
-            self.status_label.setText("Loading library…")
+            line = "Loading library…"
         elif name:
-            self.status_label.setText(f"Loading library… ({current}/{total}) — {name}")
+            line = f"Loading library… ({current}/{total}) — {name}"
         else:
-            self.status_label.setText(f"Loading library… ({current}/{total})")
+            line = f"Loading library… ({current}/{total})"
+        self.status_label.setText(line)
+        self.status_message.emit(line)
 
     def _on_scan_complete(self, comics: list[Comic], worker=None):
         if worker is not None and worker is not self.worker:
@@ -268,7 +333,10 @@ class ComicList(QWidget):
         self.comics = comics
         self._set_comics(comics)
         self.set_reading_list(self.reading_list)
-        self.status_label.setText(f"Found {len(comics)} comics")
+        summary = f"Found {len(comics)} comics"
+        logger.info("Library scan finished: %s (%d files)", self.current_folder, len(comics))
+        self.status_label.setText(summary)
+        self.status_message.emit(summary)
         self._update_counts()
         self._update_library_actions_enabled()
         self.scan_completed.emit(comics)
@@ -303,6 +371,11 @@ class ComicList(QWidget):
         self.rename_folders_btn.setEnabled(
             has_local and self.current_folder is not None and not actions_busy
         )
+        has_cbr = any(
+            Path(comic.path).suffix.lower() == ".cbr"
+            for comic in self._rename_targets()
+        )
+        self.convert_cbr_btn.setEnabled(has_cbr and not actions_busy)
         targets = self._metadata_refresh_targets()
         keys_ok = bool(targets) and all(
             comic_has_identification_lookup_key(comic) for comic in targets
@@ -319,6 +392,7 @@ class ComicList(QWidget):
                 )
             else:
                 self.update_metadata_btn.setToolTip(_UPDATE_METADATA_TOOLTIP)
+        self._sync_organize_menu()
 
     _update_rename_enabled = _update_library_actions_enabled
 
@@ -472,7 +546,7 @@ class ComicList(QWidget):
         self._set_metadata_refresh_busy(True, len(targets))
         self.status_label.setText("Updating metadata…")
         self.metadata_refresh_worker = FolderMetadataRefreshWorker(
-            targets, key, cache_enabled=cache_enabled
+            targets, key, cache_enabled=cache_enabled, config=self.config
         )
         worker = self.metadata_refresh_worker
         worker.progress.connect(
@@ -541,6 +615,55 @@ class ComicList(QWidget):
         if success:
             self.comics_changed.emit(list(self.comics))
         self._update_counts()
+
+    def _on_convert_cbr(self):
+        targets = [
+            comic
+            for comic in self._rename_targets()
+            if Path(comic.path).suffix.lower() == ".cbr"
+        ]
+        if not targets:
+            QMessageBox.information(
+                self,
+                "Convert to CBZ",
+                "No .cbr files in the current selection or folder.",
+            )
+            return
+        answer = QMessageBox.question(
+            self,
+            "Convert to CBZ",
+            f"Convert {len(targets)} .cbr file(s) to .cbz?\n\n"
+            "Existing ComicInfo is preserved. Original .cbr files are removed on success.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.status_label.setText("Converting to CBZ…")
+        self.convert_worker = CbrConvertWorker(targets)
+        worker = self.convert_worker
+        worker.progress.connect(
+            lambda current, total, name: self.status_label.setText(
+                f"Converting: {current}/{total} — {name}"
+            )
+        )
+        worker.finished.connect(self._on_convert_complete)
+        worker.start()
+
+    def _on_convert_complete(self, results):
+        self.convert_worker = None
+        self._update_library_actions_enabled()
+        success = sum(1 for item in results if item.new_path is not None)
+        failed = len(results) - success
+        for item in results:
+            if item.new_path is not None:
+                self.refresh_comic(item.comic)
+        if failed:
+            self.status_label.setText(f"Converted {success} file(s); {failed} failed")
+        else:
+            self.status_label.setText(f"Converted {success} file(s) to CBZ")
+        if success:
+            self.comics_changed.emit(list(self.comics))
 
     def _on_rename_files(self):
         targets = self._rename_targets()

@@ -10,7 +10,15 @@ from PySide6.QtWidgets import QApplication
 
 import comicdesk.config as config_module
 from comicdesk.ui.main_window import MainWindow
-from comicdesk.ui.shell.primary_nav import NAV_ACQUIRE, NAV_LIBRARY, NAV_METADATA, NAV_PAGES
+from comicdesk.ui.shell.primary_nav import (
+    NAV_ACQUIRE,
+    NAV_COLLECTION,
+    NAV_ISSUE,
+    NAV_LISTS,
+    NAV_METADATA,
+    NAV_PAGES,
+)
+from comicdesk.ui.shell.secondary_nav import SUB_COLLECTION_BROWSE, SUB_ISSUE_PAGES
 from comicdesk.ui.theme import colors_for
 
 
@@ -32,10 +40,10 @@ def test_main_window_builds_offscreen(qapp):
     assert window.pages_panel is window.app_shell.pages_panel
     assert window.getcomics_panel is window.app_shell.getcomics_panel
     assert window.download_queue_panel is window.app_shell.download_queue_panel
-    assert window.app_shell.stack.count() == 5
+    assert window.app_shell.stack.count() == 4
     assert window.menuBar().actions()
     status = window.statusbar.currentMessage()
-    assert status == "Ready" or status.startswith("Scanning: ")
+    assert status.startswith("Ready") or status.startswith("Scanning")
 
     window.close()
 
@@ -50,7 +58,7 @@ def test_main_window_focuses_comic_in_metadata_tab(qapp):
 
     assert window.metadata_panel.comic is comic
     window._open_metadata_tab(comic)
-    assert window.app_shell.current_nav_id() == NAV_METADATA
+    assert window.app_shell.current_nav_id() == NAV_ISSUE
     window.close()
 
 
@@ -89,9 +97,9 @@ def test_main_window_lists_attention_after_add(qapp):
     comic = Comic(Path("book.cbz"), series_name="Test", issue_number="1")
     window.reading_list_panel.add_comic(comic)
     window.app_shell.notify_lists_attention(1)
-    lists_button = window.app_shell.primary_nav._buttons["lists"]
+    lists_button = window.app_shell.primary_nav._buttons[NAV_LISTS]
     assert lists_button.property("attention") is True
-    window.app_shell.navigate_to("lists")
+    window.app_shell.navigate_to(NAV_LISTS)
     assert lists_button.property("attention") in (False, None)
     window.close()
 
@@ -99,11 +107,12 @@ def test_main_window_lists_attention_after_add(qapp):
 def test_folder_sidebar_hidden_on_lists(qapp):
     window = MainWindow()
     window.show()
-    window.app_shell.navigate_to("lists")
+    window.app_shell.navigate_to(NAV_LISTS)
     assert not window.folder_sidebar.isVisible()
-    window.app_shell.navigate_to("library")
+    window.app_shell.navigate_to(NAV_COLLECTION, sub_id=SUB_COLLECTION_BROWSE)
+    qapp.processEvents()
     assert window.folder_sidebar.isVisible()
-    window.app_shell.navigate_to(NAV_PAGES)
+    window.app_shell.navigate_to(NAV_PAGES, sub_id=SUB_ISSUE_PAGES)
     assert window.folder_sidebar.isVisible()
     window.app_shell.navigate_to(NAV_ACQUIRE)
     assert not window.folder_sidebar.isVisible()
@@ -114,6 +123,6 @@ def test_main_window_navigate_to_acquire(qapp):
     window = MainWindow()
     window.app_shell.navigate_to(NAV_ACQUIRE)
     assert window.app_shell.current_nav_id() == NAV_ACQUIRE
-    window.app_shell.navigate_to(NAV_LIBRARY)
-    assert window.app_shell.current_nav_id() == NAV_LIBRARY
+    window.app_shell.navigate_to(NAV_COLLECTION)
+    assert window.app_shell.current_nav_id() == NAV_COLLECTION
     window.close()

@@ -120,7 +120,7 @@ def test_folder_worker_run_processes_all(monkeypatch):
 
     calls = []
 
-    def stub_refresh(comic, _client):
+    def stub_refresh(comic, _client, **kwargs):
         from comicdesk.ui.comic_list_workers import MetadataRefreshItemResult
 
         calls.append(comic.path.name)

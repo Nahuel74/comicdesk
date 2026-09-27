@@ -40,12 +40,20 @@ class MetadataRefreshItemResult:
     previous_path: str = ""
 
 
-def refresh_comic_metadata_from_comicvine(comic: Comic, client) -> MetadataRefreshItemResult:
+def refresh_comic_metadata_from_comicvine(
+    comic: Comic,
+    client,
+    *,
+    config=None,
+) -> MetadataRefreshItemResult:
     """Identify, apply, and persist Comic Vine metadata for one library comic."""
     previous_path = str(comic.path)
     try:
         snapshot = deepcopy(comic)
-        result = identify_comic(snapshot, client, issues_only=True)
+        use_cover = bool(getattr(config, "enable_cover_hash", True)) if config else False
+        result = identify_comic(
+            snapshot, client, issues_only=True, use_cover_hash=use_cover
+        )
         if result.status != STATUS_EXACT or result.issue is None:
             if result.status == STATUS_CANDIDATES:
                 return MetadataRefreshItemResult(
@@ -151,11 +159,13 @@ class FolderMetadataRefreshWorker(QThread):
         comics: list[Comic],
         api_key: str,
         cache_enabled: bool = True,
+        config=None,
     ):
         super().__init__()
         self.comics = list(comics)
         self.api_key = str(api_key or "").strip()
         self.cache_enabled = bool(cache_enabled)
+        self.config = config
         self._cancelled = False
 
     def run(self):
@@ -170,7 +180,7 @@ class FolderMetadataRefreshWorker(QThread):
                 break
             name = Path(comic.path).name
             self.progress.emit(index + 1, total, name)
-            item = refresh_comic_metadata_from_comicvine(comic, client)
+            item = refresh_comic_metadata_from_comicvine(comic, client, config=self.config)
             results.append(item)
             if item.outcome == "success":
                 self.item_saved.emit(comic, item.previous_path)
@@ -377,6 +387,45 @@ class ScanWorker(QThread):
             cancelled=lambda: self._cancelled,
         )
         self.finished.emit(comics)
+
+    def cancel(self):
+        self._cancelled = True
+
+
+@dataclass
+class CbrConvertResult:
+    comic: Comic
+    new_path: Path | None
+    error: str = ""
+
+
+class CbrConvertWorker(QThread):
+    """Convert selected .cbr files to .cbz without editing metadata."""
+
+    progress = Signal(int, int, str)
+    finished = Signal(list)
+
+    def __init__(self, comics: list[Comic]):
+        super().__init__()
+        self.comics = [comic for comic in comics if Path(comic.path).suffix.lower() == ".cbr"]
+        self._cancelled = False
+
+    def run(self):
+        from comicdesk.services.cbr_writer import convert_cbr_to_cbz_preserve_metadata
+
+        results: list[CbrConvertResult] = []
+        total = len(self.comics)
+        for index, comic in enumerate(self.comics):
+            if self._cancelled:
+                break
+            name = Path(comic.path).name
+            self.progress.emit(index + 1, total, name)
+            try:
+                new_path = convert_cbr_to_cbz_preserve_metadata(comic)
+                results.append(CbrConvertResult(comic, new_path))
+            except Exception as exc:
+                results.append(CbrConvertResult(comic, None, str(exc)))
+        self.finished.emit(results)
 
     def cancel(self):
         self._cancelled = True

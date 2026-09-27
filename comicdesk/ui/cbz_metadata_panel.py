@@ -908,7 +908,14 @@ class CbzMetadataPanel(QWidget):
         self._proposal = None
         self._stop_cover_loaders()
         self._clear_candidates()
-        self._search_worker = MetadataSearchWorker(self.session.snapshot(), key, cache_enabled=bool(getattr(self.config, "cache_enabled", True)), token=token)
+        use_cover = bool(getattr(self.config, "enable_cover_hash", True))
+        self._search_worker = MetadataSearchWorker(
+            self.session.snapshot(),
+            key,
+            cache_enabled=bool(getattr(self.config, "cache_enabled", True)),
+            token=token,
+            use_cover_hash=use_cover,
+        )
         worker = self._search_worker
         worker.finished.connect(lambda result, w=worker, t=token, p=path: self._search_finished(result, w, t, p))
         worker.error.connect(lambda message, w=worker, t=token, p=path: self._search_error(message, w, t, p))

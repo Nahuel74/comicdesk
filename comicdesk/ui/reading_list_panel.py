@@ -230,6 +230,24 @@ class ReadingListPanel(QWidget):
     def _list_snapshot(self): return deepcopy(self.reading_list)
     def _emit_list_changed_if_needed(self, previous):
         self.list_changed.emit() if self.reading_list != previous else None
+    def import_arc_entries(self, entries: list) -> int:
+        """Replace the list with arc-ordered comics and virtual CBL rows."""
+        from comicdesk.models import CBLBook, Comic
+
+        previous = self._list_snapshot()
+        self.reading_list.comics.clear()
+        added = 0
+        for entry in entries:
+            comic = entry if isinstance(entry, Comic) else entry.to_comic()
+            if self.reading_list.add_comic(comic):
+                added += 1
+        self._apply_current_order()
+        self._populate_table()
+        self._update_preview()
+        self._set_dirty(True)
+        self._emit_list_changed_if_needed(previous)
+        return added
+
     def add_comic(self, comic: Comic) -> bool:
         if self.reading_list.add_comic(comic):
             self._apply_current_order()
