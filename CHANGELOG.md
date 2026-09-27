@@ -4,6 +4,8 @@ All notable changes are documented here. New releases add a section at the top (
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-09-27
+
 ### Added
 
 - Startup feedback: window appears immediately with status-bar progress, in-app banner during first library scan, and timestamped `comicdesk.startup` logs (set `COMICDESK_LOG_LEVEL=DEBUG` for more detail)
@@ -17,6 +19,7 @@ All notable changes are documented here. New releases add a section at the top (
 ### Fixed
 
 - **Acquire → Wishlist**: dedicated full-page wishlist view (no broken splitter layout); Search and Wishlist share one GetComics panel in the stack (fixes empty/broken wishlist after redirect)
+
 ### Removed
 
 - **Acquire → Pull** list, `pull_list_panel`, and `followed_series` persistence

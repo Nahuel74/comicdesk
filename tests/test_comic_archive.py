@@ -75,7 +75,7 @@ def test_scan_comics_empty_folder_returns_without_hanging(tmp_path):
     )
 
     assert comics == []
-    assert any("Searching" in message for _, _, message in progress_calls)
+    assert progress_calls == []
 
 
 def test_scan_folder_includes_cbr(tmp_path):
